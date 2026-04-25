@@ -47,7 +47,7 @@ async def show_main_menu(update: Update, context: ContextTypes.DEFAULT_TYPE, use
             session.commit()
         session.close()
 
-    status = f"🐦 **{user.parrot_name}** 当前状态\n\n"
+    status = f"🦜 **{user.parrot_name}** 当前状态\n\n"
     status += f"等级：{user.level}/9　经验：{user.exp}　饲料：{user.feed}\n"
     status += f"战绩：{user.wins}胜 {user.losses}负\n"
     status += f"快乐度：{user.happiness}%　饥饿度：{user.hunger}%\n"
