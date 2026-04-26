@@ -84,10 +84,14 @@ def calculate_combat(user):
 # ================== 键盘 ==================
 def build_keyboard():
     return InlineKeyboardMarkup([
-        [InlineKeyboardButton("🥚 捡蛋", callback_data="pick_egg"), InlineKeyboardButton("⚡ 赶产", callback_data="rush_produce")],
-        [InlineKeyboardButton("🌾 喂养", callback_data="feed_birds"), InlineKeyboardButton("🧹 清扫", callback_data="clean_dung")],
-        [InlineKeyboardButton("💰 出售全部", callback_data="sell_all"), InlineKeyboardButton("🛒 购买🦜", callback_data="buy_bird")],
-        [InlineKeyboardButton("⚔️ PK", callback_data="pk_menu"), InlineKeyboardButton("🦜 官网", callback_data="official_web")],
+        [InlineKeyboardButton("🥚 捡蛋", callback_data="pick_egg"), 
+         InlineKeyboardButton("⚡ 赶产", callback_data="rush_produce")],
+        [InlineKeyboardButton("🌾 喂养", callback_data="feed_birds"), 
+         InlineKeyboardButton("🧹 清扫", callback_data="clean_dung")],
+        [InlineKeyboardButton("💰 出售全部", callback_data="sell_all"), 
+         InlineKeyboardButton("🛒 购买🦜", callback_data="buy_bird")],
+        [InlineKeyboardButton("⚔️ PK", callback_data="pk_menu"), 
+         InlineKeyboardButton("🦜 官网", callback_data="official_web")],
     ])
 
 def pk_keyboard():
@@ -115,14 +119,17 @@ async def send_panel(update: Update, edit: bool = False):
     except Exception as e:
         logger.error(f"面板错误: {e}")
 
-# ================== 群ID & 每日签到 ==================
+# ================== 群ID记录 & 每日签到 ==================
 async def track_group(update: Update, context: ContextTypes.DEFAULT_TYPE):
     if update.my_chat_member and update.my_chat_member.new_chat_member.status in ["member", "administrator"]:
         chat_id = update.effective_chat.id
         if chat_id not in group_ids:
             group_ids.add(chat_id)
             save_data()
-            await context.bot.send_message(chat_id, "✅ 机器人已加入群组！每日签到通知已开启。")
+            try:
+                await context.bot.send_message(chat_id, "✅ 机器人已加入群组！每日签到通知已开启。")
+            except:
+                pass
 
 async def daily_checkin_notice(context: ContextTypes.DEFAULT_TYPE):
     keyboard = InlineKeyboardMarkup([[InlineKeyboardButton("📅 立即签到", callback_data="daily_checkin")]])
@@ -137,12 +144,21 @@ async def daily_checkin_notice(context: ContextTypes.DEFAULT_TYPE):
         except:
             pass
 
-# ================== 按钮处理器 ==================
+# ================== 完整按钮处理器（官网已修复） ==================
 async def button_handler(update: Update, context: ContextTypes.DEFAULT_TYPE):
     query = update.callback_query
     user = get_user_data(update.effective_user.id)
     data = query.data
     await query.answer("✅ 操作成功！")
+
+    # ================== 官网按钮 ==================
+    if data == "official_web":
+        await query.message.reply_text(
+            "🦜 **飞鸟牧场官网**\n"
+            "https://www.niaocoin.xyz/",
+            parse_mode='Markdown'
+        )
+        return   # 直接返回，不刷新面板
 
     if data == "daily_checkin":
         today = str(date.today())
@@ -227,7 +243,7 @@ async def button_handler(update: Update, context: ContextTypes.DEFAULT_TYPE):
     if data not in ["pk_menu", "pk_random", "pk_target", "daily_checkin"]:
         await send_panel(update, edit=True)
 
-# ================== 命令处理器（已补全 /rank 和签到） ==================
+# ================== 命令 ==================
 async def start(update: Update, context: ContextTypes.DEFAULT_TYPE):
     await update.message.reply_text("🎉 欢迎来到飞鸟牧场！初始金币 **1000**")
     await send_panel(update)
