@@ -40,7 +40,6 @@ def save_data():
     except Exception as e:
         logger.error(f"保存失败: {e}")
 
-# ================== 用户数据 ==================
 def get_user_data(user_id: int):
     uid = str(user_id)
     today = str(date.today())
@@ -74,14 +73,14 @@ def add_exp(user_id: int, amount: int):
 def calculate_combat(user):
     if user["birds"] == 0:
         return 0
-    per = {"stamina":25, "strength":18, "intelligence":20, "agility":15}
+    per = {"stamina": 25, "strength": 18, "intelligence": 20, "agility": 15}
     base = user["combat"] + (per["strength"] * user["birds"]) * 1.2 + (per["agility"] * user["birds"]) * 0.8
     return int(base * (1 + (per["intelligence"] * user["birds"]) / 200))
 
 # ================== 键盘 ==================
 def build_keyboard():
     return InlineKeyboardMarkup([
-        [InlineKeyboardButton("🥚 捡蛋", callback_data="pick_egg"), InlineKeyboardButton("⚡ 赶产", callback_data="rush_produce")],
+        [InlineKeyboardButton("🐦 捡蛋", callback_data="pick_egg"), InlineKeyboardButton("⚡ 赶产", callback_data="rush_produce")],
         [InlineKeyboardButton("🌾 喂养", callback_data="feed_birds"), InlineKeyboardButton("🧹 清扫", callback_data="clean_dung")],
         [InlineKeyboardButton("💰 出售全部", callback_data="sell_all"), InlineKeyboardButton("🛒 购买🦜", callback_data="buy_bird")],
         [InlineKeyboardButton("⚔️ PK", callback_data="pk_menu"), InlineKeyboardButton("🦜 官网", callback_data="official_web")],
@@ -97,17 +96,22 @@ def pk_keyboard():
 async def send_panel(update: Update, edit: bool = False):
     user = get_user_data(update.effective_user.id)
     combat = calculate_combat(user)
-    text = f"🐦 **飞鸟牧场**（{user['level']}级）\n💰 金币：{user['gold']} | 🌾 鸟粮：{user['feed']}\n🦜 鹦鹉：{user['birds']}/4 | ⚔️ 战斗力：{combat}\n⭐ 经验：{user['exp']}/{[0,100,300,600,1000,1500,2200,3000,4000,999999][user['level']]}"
+    text = (
+        f"🐦 **飞鸟牧场**（{user['level']}级）\n"
+        f"💰 金币：{user['gold']}  |  🌾 鸟粮：{user['feed']}\n"
+        f"🦜 鹦鹉：{user['birds']}/4  |  ⚔️ 战斗力：{combat}\n"
+        f"⭐ 经验：{user['exp']}/{[0,100,300,600,1000,1500,2200,3000,4000,999999][user['level']]}"
+    )
     markup = build_keyboard()
     try:
         if edit and update.callback_query:
             await update.callback_query.edit_message_text(text, reply_markup=markup, parse_mode='Markdown')
         else:
             await update.effective_message.reply_text(text, reply_markup=markup, parse_mode='Markdown')
-    except:
-        pass
+    except Exception as e:
+        logger.error(f"面板错误: {e}")
 
-# ================== 自动记录群ID ==================
+# ================== 群ID记录 & 每日签到 ==================
 async def track_group(update: Update, context: ContextTypes.DEFAULT_TYPE):
     if update.my_chat_member and update.my_chat_member.new_chat_member.status in ["member", "administrator"]:
         chat_id = update.effective_chat.id
@@ -116,7 +120,6 @@ async def track_group(update: Update, context: ContextTypes.DEFAULT_TYPE):
             save_data()
             await context.bot.send_message(chat_id, "✅ 机器人已加入群组！每日签到通知已开启。")
 
-# ================== 每日签到通知 ==================
 async def daily_checkin_notice(context: ContextTypes.DEFAULT_TYPE):
     keyboard = InlineKeyboardMarkup([[InlineKeyboardButton("📅 立即签到", callback_data="daily_checkin")]])
     for gid in list(group_ids):
@@ -220,26 +223,41 @@ async def button_handler(update: Update, context: ContextTypes.DEFAULT_TYPE):
     if data not in ["pk_menu", "pk_random", "pk_target", "daily_checkin"]:
         await send_panel(update, edit=True)
 
+# ================== 命令 ==================
+async def start(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    await update.message.reply_text("🎉 欢迎来到飞鸟牧场！初始金币30，快去购买第一只🦜吧～")
+    await send_panel(update)
+
+async def open_farm(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    await send_panel(update)
+
+async def pk_command(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    user = get_user_data(update.effective_user.id)
+    power1 = calculate_combat(user)
+    power2 = random.randint(max(30, power1 - 120), power1 + 200)
+    if power1 > power2:
+        result = "🎉 你赢了！+150 金币"
+        user["gold"] += 150
+    else:
+        result = "😔 你输了"
+    await update.message.reply_text(f"⚔️ **随机PK**\n你的战力：**{power1}**\n对手战力：**{power2}**\n\n{result}", parse_mode='Markdown')
+    save_data()
+
 # ================== 主函数 ==================
 def main():
     load_data()
-    app = Application.builder().token(TOKEN).post_init(lambda a: a.bot.set_my_commands([
-        BotCommand("start", "启动牧场"),
-        BotCommand("open", "打开面板"),
-        BotCommand("pk", "进行PK"),
-        BotCommand("checkin", "签到")
-    ])).build()
+    app = Application.builder().token(TOKEN).build()
 
-    # 每日签到任务（北京时间00:00）
+    # 每日签到（北京时间00:00）
     try:
         app.job_queue.run_daily(daily_checkin_notice, time=time(0, 0, 0))
-        logger.info("✅ 每日签到任务已设置")
+        logger.info("每日签到任务已设置")
     except Exception as e:
-        logger.warning(f"JobQueue 设置失败: {e}（可忽略，若不需要自动通知）")
+        logger.warning(f"JobQueue 设置失败: {e}")
 
     app.add_handler(ChatMemberHandler(track_group, ChatMemberHandler.MY_CHAT_MEMBER))
 
-    app.add_handler(CommandHandler("start", lambda u,c: (start(u,c), None)[0])
+    app.add_handler(CommandHandler("start", start))
     app.add_handler(CommandHandler("open", open_farm))
     app.add_handler(CommandHandler("pk", pk_command))
     app.add_handler(CallbackQueryHandler(button_handler))
