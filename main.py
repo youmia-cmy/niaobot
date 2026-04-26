@@ -22,15 +22,7 @@ def build_keyboard():
     return InlineKeyboardMarkup(keyboard)
 
 async def send_panel(update: Update, context: ContextTypes.DEFAULT_TYPE, edit=False):
-    text = (
-        "🐦 **你的飞鸟牧场**（4级）\n"
-        "💰 金币：9600 | 🌾 鸟粮：72\n"
-        "🏠 鸟窝：4/4\n\n"
-        "▫️ 麻雀×2：✅ 可立即捡蛋\n"
-        "▫️ 鸽子×1：✅ 可立即捡蛋\n"
-        "▫️ 珍珠鸟×1：4小时后\n\n"
-        "点击下方按钮操作～"
-    )
+    text = "🐦 **飞鸟牧场**（4级）\n💰 金币：9600 | 🌾 鸟粮：72\n🏠 鸟窝：4/4\n\n点击按钮操作～"
     markup = build_keyboard()
     if edit and update.callback_query:
         await update.callback_query.edit_message_text(text, reply_markup=markup, parse_mode='Markdown')
@@ -39,42 +31,34 @@ async def send_panel(update: Update, context: ContextTypes.DEFAULT_TYPE, edit=Fa
 
 async def button_handler(update: Update, context: ContextTypes.DEFAULT_TYPE):
     query = update.callback_query
-    action = query.data
-    responses = {
-        "pick_egg": "✅ 捡蛋成功！金币 +120",
-        "rush_produce": "✅ 赶产成功！",
-        "clean_dung": "✅ 清扫鸟粪成功！金币 +32",
-        "sell_all": "✅ 出售全部完成！金币 +250",
-        "buy_bird": "✅ 购买虎皮鹦鹉成功！",
-    }
-    await query.answer(responses.get(action, "✅ 操作成功"), show_alert=True)
+    await query.answer("✅ 操作成功！", show_alert=True)
     await send_panel(update, context, edit=True)
 
 # ================== 命令功能 ==================
 async def start(update: Update, context: ContextTypes.DEFAULT_TYPE):
-    await update.message.reply_text("✅ 欢迎来到【QQ牧场·飞鸟饲养】！")
+    await update.message.reply_text("✅ 欢迎来到飞鸟牧场！")
     await send_panel(update, context)
 
 async def open_farm(update: Update, context: ContextTypes.DEFAULT_TYPE):
     await send_panel(update, context)
 
 async def pick_egg(update: Update, context: ContextTypes.DEFAULT_TYPE):
-    await update.message.reply_text("✅ 捡蛋成功！获得鸟蛋，金币 +100")
+    await update.message.reply_text("✅ 捡蛋成功！")
 
 async def rush_produce(update: Update, context: ContextTypes.DEFAULT_TYPE):
     await update.message.reply_text("✅ 赶产成功！")
 
 async def clean_dung(update: Update, context: ContextTypes.DEFAULT_TYPE):
-    await update.message.reply_text("✅ 清扫鸟粪成功！金币 +32")
+    await update.message.reply_text("✅ 清扫鸟粪成功！")
 
 async def sell_all(update: Update, context: ContextTypes.DEFAULT_TYPE):
-    await update.message.reply_text("✅ 出售全部完成！金币 +250")
+    await update.message.reply_text("✅ 出售全部完成！")
 
 async def buy_bird(update: Update, context: ContextTypes.DEFAULT_TYPE):
     await update.message.reply_text("✅ 购买虎皮鹦鹉成功！")
 
 async def help_cmd(update: Update, context: ContextTypes.DEFAULT_TYPE):
-    await update.message.reply_text("使用 /start 或 /open 打开面板，或点击按钮操作。")
+    await update.message.reply_text("使用菜单或按钮操作飞鸟牧场。")
 
 async def post_init(application: Application):
     commands = [
