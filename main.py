@@ -115,7 +115,7 @@ async def send_panel(update: Update, edit: bool = False):
     except Exception as e:
         logger.error(f"面板错误: {e}")
 
-# ================== 群ID记录 & 每日签到 ==================
+# ================== 群ID & 每日签到 ==================
 async def track_group(update: Update, context: ContextTypes.DEFAULT_TYPE):
     if update.my_chat_member and update.my_chat_member.new_chat_member.status in ["member", "administrator"]:
         chat_id = update.effective_chat.id
@@ -137,21 +137,12 @@ async def daily_checkin_notice(context: ContextTypes.DEFAULT_TYPE):
         except:
             pass
 
-# ================== 按钮处理器（已修复官网） ==================
+# ================== 按钮处理器 ==================
 async def button_handler(update: Update, context: ContextTypes.DEFAULT_TYPE):
     query = update.callback_query
     user = get_user_data(update.effective_user.id)
     data = query.data
     await query.answer("✅ 操作成功！")
-
-    # ================== 官网按钮 ==================
-    if data == "official_web":
-        await query.message.reply_text(
-            "🦜 **飞鸟牧场官网**\n"
-            "https://www.niaocoin.xyz/",
-            parse_mode='Markdown'
-        )
-        return   # 不刷新面板
 
     if data == "daily_checkin":
         today = str(date.today())
@@ -236,13 +227,37 @@ async def button_handler(update: Update, context: ContextTypes.DEFAULT_TYPE):
     if data not in ["pk_menu", "pk_random", "pk_target", "daily_checkin"]:
         await send_panel(update, edit=True)
 
-# ================== 命令 ==================
+# ================== 命令处理器（已补全 /rank 和签到） ==================
 async def start(update: Update, context: ContextTypes.DEFAULT_TYPE):
-    await update.message.reply_text("🎉 欢迎来到飞鸟牧场！初始金币 **1000**，快去购买第一只🦜吧～")
+    await update.message.reply_text("🎉 欢迎来到飞鸟牧场！初始金币 **1000**")
     await send_panel(update)
 
 async def open_farm(update: Update, context: ContextTypes.DEFAULT_TYPE):
     await send_panel(update)
+
+async def rank(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    if not user_data:
+        await update.message.reply_text("🏆 目前还没有玩家上榜")
+        return
+    sorted_users = sorted(user_data.items(), key=lambda x: x[1]['gold'], reverse=True)[:10]
+    text = "🏆 **飞鸟牧场全球排行榜** 🏆\n\n"
+    for i, (uid, d) in enumerate(sorted_users, 1):
+        text += f"{i}. 用户{uid[-4:]} — 💰 {d['gold']}金币（{d.get('level',1)}级）\n"
+    await update.message.reply_text(text, parse_mode='Markdown')
+
+async def checkin_cmd(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    user = get_user_data(update.effective_user.id)
+    today = str(date.today())
+    if user.get("last_checkin") == today:
+        await update.message.reply_text("❌ 你今天已经签到过了")
+        return
+    user["gold"] += 10
+    user["last_checkin"] = today
+    leveled = add_exp(update.effective_user.id, 30)
+    await update.message.reply_text("✅ 签到成功！\n+10 金币\n+30 经验")
+    if leveled:
+        await update.message.reply_text("🎉 升级了！")
+    save_data()
 
 async def pk_command(update: Update, context: ContextTypes.DEFAULT_TYPE):
     user = get_user_data(update.effective_user.id)
@@ -270,10 +285,12 @@ def main():
 
     app.add_handler(CommandHandler("start", start))
     app.add_handler(CommandHandler("open", open_farm))
+    app.add_handler(CommandHandler("rank", rank))
+    app.add_handler(CommandHandler("checkin", checkin_cmd))
     app.add_handler(CommandHandler("pk", pk_command))
     app.add_handler(CallbackQueryHandler(button_handler))
 
-    logger.info("🚀 机器人启动成功！")
+    logger.info("🚀 完整版机器人启动成功！")
     app.run_polling(drop_pending_updates=True)
 
 if __name__ == '__main__':
