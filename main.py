@@ -13,7 +13,7 @@ logging.basicConfig(format='%(asctime)s - %(name)s - %(levelname)s - %(message)s
 # ================== Inline 键盘 ==================
 def build_keyboard():
     keyboard = [
-        [InlineKeyboardButton("🐦 捡蛋", callback_data="pick_egg"),
+        [InlineKeyboardButton("🦜 捡蛋", callback_data="pick_egg"),
          InlineKeyboardButton("⚡ 赶产", callback_data="rush_produce")],
         [InlineKeyboardButton("🧹 清扫鸟粪", callback_data="clean_dung"),
          InlineKeyboardButton("💰 出售全部", callback_data="sell_all")],
