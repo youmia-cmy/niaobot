@@ -44,15 +44,27 @@ def save_data():
     except Exception as e:
         logger.error(f"保存失败: {e}")
 
+# ================== 用户数据（初始金币改为1000） ==================
 def get_user_data(user_id: int):
     uid = str(user_id)
     today = str(date.today())
     if uid not in user_data:
         user_data[uid] = {
-            "gold": 30, "feed": 50, "birds": 0, "nests": 4,
-            "level": 1, "exp": 0, "last_active": 0,
-            "combat": 100, "stamina": 0, "strength": 0, "intelligence": 0, "agility": 0,
-            "feed_count_today": 0, "last_feed_date": today, "last_checkin": ""
+            "gold": 1000,      # ← 已修改为1000
+            "feed": 50, 
+            "birds": 0, 
+            "nests": 4,
+            "level": 1, 
+            "exp": 0, 
+            "last_active": 0,
+            "combat": 100, 
+            "stamina": 0, 
+            "strength": 0, 
+            "intelligence": 0, 
+            "agility": 0,
+            "feed_count_today": 0, 
+            "last_feed_date": today, 
+            "last_checkin": ""
         }
     if user_data[uid].get("last_feed_date") != today:
         user_data[uid]["feed_count_today"] = 0
@@ -233,7 +245,7 @@ async def button_handler(update: Update, context: ContextTypes.DEFAULT_TYPE):
 
 # ================== 命令 ==================
 async def start(update: Update, context: ContextTypes.DEFAULT_TYPE):
-    await update.message.reply_text("🎉 欢迎来到飞鸟牧场！初始金币30，快去购买第一只🦜吧～")
+    await update.message.reply_text("🎉 欢迎来到飞鸟牧场！初始金币 **1000**，快去购买第一只🦜吧～")
     await send_panel(update)
 
 async def open_farm(update: Update, context: ContextTypes.DEFAULT_TYPE):
@@ -263,18 +275,14 @@ def main():
     except Exception as e:
         logger.warning(f"JobQueue 设置失败: {e}")
 
-    # 自动记录群ID
     app.add_handler(ChatMemberHandler(track_group, ChatMemberHandler.MY_CHAT_MEMBER))
 
-    # 命令
     app.add_handler(CommandHandler("start", start))
     app.add_handler(CommandHandler("open", open_farm))
     app.add_handler(CommandHandler("pk", pk_command))
-
-    # 按钮
     app.add_handler(CallbackQueryHandler(button_handler))
 
-    logger.info("🚀 完整版机器人启动成功！")
+    logger.info("🚀 飞鸟牧场机器人启动成功！（初始金币1000）")
     app.run_polling(drop_pending_updates=True)
 
 if __name__ == '__main__':
