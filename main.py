@@ -54,14 +54,15 @@ def add_exp(user_id: int, amount: int):
         user["gold"] += 200
     return user["level"] > old_level
 
-# ================== 键盘 ==================
+# ================== 键盘（新增喂养按钮） ==================
 def build_keyboard():
     return InlineKeyboardMarkup([
         [InlineKeyboardButton("🥚 捡蛋", callback_data="pick_egg"),
          InlineKeyboardButton("⚡ 赶产", callback_data="rush_produce")],
-        [InlineKeyboardButton("🧹 清扫鸟粪", callback_data="clean_dung"),
-         InlineKeyboardButton("💰 出售全部", callback_data="sell_all")],
-        [InlineKeyboardButton("🛒 购买虎皮鹦鹉", callback_data="buy_bird")],
+        [InlineKeyboardButton("🌾 喂养", callback_data="feed_birds"),
+         InlineKeyboardButton("🧹 清扫鸟粪", callback_data="clean_dung")],
+        [InlineKeyboardButton("💰 出售全部", callback_data="sell_all"),
+         InlineKeyboardButton("🛒 购买虎皮鹦鹉", callback_data="buy_bird")],
         [InlineKeyboardButton("🦜 官网", callback_data="official_web")],
     ])
 
@@ -105,7 +106,7 @@ async def group_activity(update: Update, context: ContextTypes.DEFAULT_TYPE):
             )
         save_data()
 
-# ================== 按钮处理器 ==================
+# ================== 按钮处理器（新增喂养） ==================
 async def button_handler(update: Update, context: ContextTypes.DEFAULT_TYPE):
     query = update.callback_query
     user = get_user_data(update.effective_user.id)
@@ -115,13 +116,28 @@ async def button_handler(update: Update, context: ContextTypes.DEFAULT_TYPE):
     try:
         if data == "official_web":
             await query.message.reply_text(
-                "🦜 **飞鸟牧场官网**\n"
-                "https://www.niaocoin.xyz/",
+                "🦜 **飞鸟牧场官网**\nhttps://www.niaocoin.xyz/",
                 parse_mode='Markdown'
             )
             return
 
-        if data == "pick_egg":
+        elif data == "feed_birds":   # 新增喂养功能
+            if user['feed'] >= 10:
+                user['feed'] -= 10
+                exp_gain = random.randint(40, 60)
+                leveled_up = add_exp(update.effective_user.id, exp_gain)
+                await query.message.reply_text(
+                    f"🌾 喂养成功！消耗 10 鸟粮\n获得 **{exp_gain}** 经验值！"
+                )
+                if leveled_up:
+                    await query.message.reply_text(
+                        f"🎉 恭喜升级！飞鸟牧场升到 **{user['level']}级**！\n+200 金币奖励",
+                        parse_mode='Markdown'
+                    )
+            else:
+                await query.message.reply_text("❌ 鸟粮不足！至少需要 10 鸟粮才能喂养")
+
+        elif data == "pick_egg":
             reward = 80 + user['birds'] * 25 + user['level'] * 15
             user['gold'] += reward
             await query.message.reply_text(f"✅ 捡蛋成功！获得 {reward} 金币")
@@ -154,9 +170,9 @@ async def button_handler(update: Update, context: ContextTypes.DEFAULT_TYPE):
     except Exception as e:
         logger.error(f"按钮错误: {e}")
 
-# ================== 命令处理器 ==================
+# ================== 命令处理器（保持不变） ==================
 async def start(update: Update, context: ContextTypes.DEFAULT_TYPE):
-    await update.message.reply_text("🎉 欢迎来到飞鸟牧场！\n在群里聊天可获得经验升级哦～")
+    await update.message.reply_text("🎉 欢迎来到飞鸟牧场！\n多喂养 + 群聊可快速升级～")
     await send_panel(update)
 
 async def open_farm(update: Update, context: ContextTypes.DEFAULT_TYPE):
@@ -255,7 +271,7 @@ def main():
     # 按钮
     app.add_handler(CallbackQueryHandler(button_handler))
     
-    # 群内活跃经验
+    # 群内活跃
     app.add_handler(MessageHandler(
         filters.TEXT & ~filters.COMMAND & (filters.ChatType.GROUP | filters.ChatType.SUPERGROUP), 
         group_activity
@@ -263,7 +279,7 @@ def main():
 
     app.add_error_handler(error_handler)
 
-    logger.info("🚀 飞鸟牧场机器人启动成功！（含官网按钮 + 群活跃）")
+    logger.info("🚀 飞鸟牧场机器人启动成功！（新增喂养功能）")
     app.run_polling(drop_pending_updates=True)
 
 if __name__ == '__main__':
