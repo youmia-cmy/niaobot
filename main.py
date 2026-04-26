@@ -2,7 +2,7 @@ import logging
 import os
 import json
 import random
-from datetime import datetime, date, time
+from datetime import date, time
 from telegram import Update, InlineKeyboardButton, InlineKeyboardMarkup, BotCommand
 from telegram.ext import (
     Application, CommandHandler, CallbackQueryHandler, 
@@ -44,27 +44,15 @@ def save_data():
     except Exception as e:
         logger.error(f"保存失败: {e}")
 
-# ================== 用户数据（初始金币改为1000） ==================
 def get_user_data(user_id: int):
     uid = str(user_id)
     today = str(date.today())
     if uid not in user_data:
         user_data[uid] = {
-            "gold": 1000,      # ← 已修改为1000
-            "feed": 50, 
-            "birds": 0, 
-            "nests": 4,
-            "level": 1, 
-            "exp": 0, 
-            "last_active": 0,
-            "combat": 100, 
-            "stamina": 0, 
-            "strength": 0, 
-            "intelligence": 0, 
-            "agility": 0,
-            "feed_count_today": 0, 
-            "last_feed_date": today, 
-            "last_checkin": ""
+            "gold": 1000, "feed": 50, "birds": 0, "nests": 4,
+            "level": 1, "exp": 0, "last_active": 0,
+            "combat": 100, "stamina": 0, "strength": 0, "intelligence": 0, "agility": 0,
+            "feed_count_today": 0, "last_feed_date": today, "last_checkin": ""
         }
     if user_data[uid].get("last_feed_date") != today:
         user_data[uid]["feed_count_today"] = 0
@@ -127,19 +115,15 @@ async def send_panel(update: Update, edit: bool = False):
     except Exception as e:
         logger.error(f"面板错误: {e}")
 
-# ================== 自动记录群ID ==================
+# ================== 群ID记录 & 每日签到 ==================
 async def track_group(update: Update, context: ContextTypes.DEFAULT_TYPE):
     if update.my_chat_member and update.my_chat_member.new_chat_member.status in ["member", "administrator"]:
         chat_id = update.effective_chat.id
         if chat_id not in group_ids:
             group_ids.add(chat_id)
             save_data()
-            try:
-                await context.bot.send_message(chat_id, "✅ 机器人已成功加入群组！每日签到通知已开启。")
-            except:
-                pass
+            await context.bot.send_message(chat_id, "✅ 机器人已加入群组！每日签到通知已开启。")
 
-# ================== 每日签到通知 ==================
 async def daily_checkin_notice(context: ContextTypes.DEFAULT_TYPE):
     keyboard = InlineKeyboardMarkup([[InlineKeyboardButton("📅 立即签到", callback_data="daily_checkin")]])
     for gid in list(group_ids):
@@ -153,12 +137,21 @@ async def daily_checkin_notice(context: ContextTypes.DEFAULT_TYPE):
         except:
             pass
 
-# ================== 按钮处理器 ==================
+# ================== 按钮处理器（已修复官网） ==================
 async def button_handler(update: Update, context: ContextTypes.DEFAULT_TYPE):
     query = update.callback_query
     user = get_user_data(update.effective_user.id)
     data = query.data
     await query.answer("✅ 操作成功！")
+
+    # ================== 官网按钮 ==================
+    if data == "official_web":
+        await query.message.reply_text(
+            "🦜 **飞鸟牧场官网**\n"
+            "https://www.niaocoin.xyz/",
+            parse_mode='Markdown'
+        )
+        return   # 不刷新面板
 
     if data == "daily_checkin":
         today = str(date.today())
@@ -268,12 +261,10 @@ def main():
     load_data()
     app = Application.builder().token(TOKEN).build()
 
-    # 每日签到任务
     try:
         app.job_queue.run_daily(daily_checkin_notice, time=time(0, 0, 0))
-        logger.info("每日签到任务已设置")
-    except Exception as e:
-        logger.warning(f"JobQueue 设置失败: {e}")
+    except:
+        pass
 
     app.add_handler(ChatMemberHandler(track_group, ChatMemberHandler.MY_CHAT_MEMBER))
 
@@ -282,7 +273,7 @@ def main():
     app.add_handler(CommandHandler("pk", pk_command))
     app.add_handler(CallbackQueryHandler(button_handler))
 
-    logger.info("🚀 飞鸟牧场机器人启动成功！（初始金币1000）")
+    logger.info("🚀 机器人启动成功！")
     app.run_polling(drop_pending_updates=True)
 
 if __name__ == '__main__':
