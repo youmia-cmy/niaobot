@@ -1,243 +1,210 @@
 import logging
-from datetime import datetime, timedelta
+import asyncio
 import random
+from datetime import datetime
+from telegram import Update, InlineKeyboardButton, InlineKeyboardMarkup, BotCommand
+from telegram.ext import Application, CommandHandler, MessageHandler, filters, ContextTypes, CallbackQueryHandler
+import aiosqlite
+import os
+from dotenv import load_dotenv
 
-from telegram import Update, InlineKeyboardButton, InlineKeyboardMarkup
-from telegram.ext import (
-    Application, CommandHandler, CallbackQueryHandler,
-    MessageHandler, filters, ContextTypes
-)
-from sqlalchemy import create_engine, Column, Integer, DateTime, String
-from sqlalchemy.orm import sessionmaker, declarative_base
+load_dotenv()
 
-logging.basicConfig(level=logging.INFO)
+TOKEN = os.getenv("TELEGRAM_BOT_TOKEN")
+if not TOKEN:
+    raise ValueError("请在 Railway / Render 的环境变量中设置 TELEGRAM_BOT_TOKEN")
 
-# ==================== 数据库 ====================
-Base = declarative_base()
-engine = create_engine('sqlite:///parrot_bot.db', echo=False)
-Session = sessionmaker(bind=engine)
+logging.basicConfig(format='%(asctime)s - %(name)s - %(levelname)s - %(message)s', level=logging.INFO)
 
-class UserData(Base):
-    __tablename__ = 'users'
-    user_id = Column(Integer, primary_key=True)
-    parrot_name = Column(String, default="小鹦鹉 🦜")
-    level = Column(Integer, default=1)
-    exp = Column(Integer, default=0)
-    feed = Column(Integer, default=50)
-    wins = Column(Integer, default=0)
-    losses = Column(Integer, default=0)
-    happiness = Column(Integer, default=80)
-    hunger = Column(Integer, default=50)
-    daily_feed_from_chat = Column(Integer, default=0)
-    last_checkin = Column(DateTime, nullable=True)
-    last_chat_activity = Column(DateTime, nullable=True)
+DB_FILE = "database.db"
 
-Base.metadata.create_all(engine)
+# ================== 数据库初始化 ==================
+async def init_db():
+    async with aiosqlite.connect(DB_FILE) as db:
+        await db.execute('''
+            CREATE TABLE IF NOT EXISTS users (
+                user_id INTEGER PRIMARY KEY,
+                username TEXT,
+                level INTEGER DEFAULT 4,
+                coins INTEGER DEFAULT 9600,
+                bird_slots INTEGER DEFAULT 4,
+                bird_food INTEGER DEFAULT 72,
+                experience INTEGER DEFAULT 0,
+                birds TEXT DEFAULT '[{"type":"麻雀","num":2,"remain":6},{"type":"鸽子","num":1,"remain":0},{"type":"珍珠鸟","num":1,"remain":4}]',
+                last_active TEXT
+            )
+        ''')
+        await db.commit()
 
-TOKEN = "8404875405:AAG9rnJWazgbwZnRgTOY58Jeyr0B29iPOx0"  
+async def get_user_data(user_id: int):
+    async with aiosqlite.connect(DB_FILE) as db:
+        async with db.execute("SELECT * FROM users WHERE user_id=?", (user_id,)) as cursor:
+            row = await cursor.fetchone()
+            if row:
+                return {
+                    "level": row[2], "coins": row[3], "bird_slots": row[4],
+                    "bird_food": row[5], "experience": row[6],
+                    "birds": eval(row[7]) if row[7] else []
+                }
+            else:
+                default_birds = [{"type":"麻雀","num":2,"remain":6}, {"type":"鸽子","num":1,"remain":0}, {"type":"珍珠鸟","num":1,"remain":4}]
+                await db.execute("INSERT INTO users (user_id, username, birds) VALUES (?, ?, ?)", (user_id, None, str(default_birds)))
+                await db.commit()
+                return {"level":4, "coins":9600, "bird_slots":4, "bird_food":72, "experience":0, "birds":default_birds}
 
-# ==================== 主菜单 ====================
-async def show_main_menu(update: Update, context: ContextTypes.DEFAULT_TYPE, user=None):
-    if not user:
-        session = Session()
-        user = session.query(UserData).filter_by(user_id=update.effective_user.id).first()
-        if not user:
-            user = UserData(user_id=update.effective_user.id)
-            session.add(user)
-            session.commit()
-        session.close()
+async def save_user_data(user_id: int, data: dict):
+    birds_str = str(data["birds"])
+    async with aiosqlite.connect(DB_FILE) as db:
+        await db.execute('''
+            UPDATE users SET level=?, coins=?, bird_slots=?, bird_food=?, experience=?, birds=?, last_active=?
+            WHERE user_id=?
+        ''', (data.get("level",4), data["coins"], data["bird_slots"], data["bird_food"],
+              data.get("experience",0), birds_str, datetime.now().isoformat(), user_id))
+        await db.commit()
 
-    status = f"🦜 **{user.parrot_name}** 当前状态\n\n"
-    status += f"等级：{user.level}/9　经验：{user.exp}　饲料：{user.feed}\n"
-    status += f"战绩：{user.wins}胜 {user.losses}负\n"
-    status += f"快乐度：{user.happiness}%　饥饿度：{user.hunger}%\n"
-    status += f"今日群聊活跃：{user.daily_feed_from_chat}/50"
-
+# ================== Inline 键盘（游戏操作面板）==================
+def build_farm_keyboard():
     keyboard = [
-        [InlineKeyboardButton("📅 每日签到", callback_data="checkin")],
-        [InlineKeyboardButton("🍎 喂养宠物", callback_data="feed")],
-        [InlineKeyboardButton("⚔️ 宠物PK", callback_data="pk_menu")],
-        [InlineKeyboardButton("👤 我的宠物", callback_data="my_pet")],
-        [InlineKeyboardButton("🏆 排行榜", callback_data="ranking")],
+        [InlineKeyboardButton("🐦 捡蛋", callback_data="pick_egg"),
+         InlineKeyboardButton("⚡ 赶产", callback_data="rush_produce")],
+        [InlineKeyboardButton("🧹 清扫鸟粪", callback_data="clean_dung"),
+         InlineKeyboardButton("💰 出售全部", callback_data="sell_all")],
+        [InlineKeyboardButton("🛒 购买虎皮鹦鹉", callback_data="buy_bird"),
+         InlineKeyboardButton("🔄 刷新牧场", callback_data="refresh")],
     ]
-    reply_markup = InlineKeyboardMarkup(keyboard)
+    return InlineKeyboardMarkup(keyboard)
 
-    try:
-        if update.callback_query:
-            await update.callback_query.message.edit_text(status, reply_markup=reply_markup, parse_mode='Markdown')
-        else:
-            await update.message.reply_text(status, reply_markup=reply_markup, parse_mode='Markdown')
-    except:
-        await update.message.reply_text(status, reply_markup=reply_markup, parse_mode='Markdown')
+def format_farm(user_data):
+    birds_info = []
+    for b in user_data["birds"]:
+        remain = b.get("remain", 0)
+        status = f"{remain}小时后" if remain > 0 else "✅ 可立即捡蛋"
+        birds_info.append(f"▫️ {b['type']}×{b['num']}：{status}")
+    
+    return (
+        f"🐦 **你的飞鸟牧场**（{user_data['level']}级）\n"
+        f"💰 金币：{user_data['coins']} | 🌾 鸟粮：{user_data['bird_food']}\n"
+        f"🏠 鸟窝：{user_data['bird_slots']}/4\n\n" +
+        "\n".join(birds_info) +
+        f"\n\n📊 经验：{user_data.get('experience', 0)}"
+    )
 
-# ==================== 签到 ====================
-async def checkin(update: Update, context: ContextTypes.DEFAULT_TYPE):
-    query = update.callback_query
-    await query.answer()
-    user_id = query.from_user.id
-
-    session = Session()
-    user = session.query(UserData).filter_by(user_id=user_id).first()
-    if not user:
-        user = UserData(user_id=user_id)
-        session.add(user)
-
-    now = datetime.now()
-    if user.last_checkin and user.last_checkin.date() == now.date():
-        await query.message.reply_text("✅ 你今天已经签到过了，明天再来吧！")
+# ================== 发送牧场面板 ===================
+async def send_farm_panel(update, context, edit=False):
+    user_id = update.effective_user.id if hasattr(update, 'effective_user') and update.effective_user else update.callback_query.from_user.id
+    data = await get_user_data(user_id)
+    text = format_farm(data)
+    markup = build_farm_keyboard()
+    
+    if edit and update.callback_query:
+        await update.callback_query.edit_message_text(text, reply_markup=markup, parse_mode='Markdown')
     else:
-        reward = 30 + user.level * 5
-        user.feed += reward
-        user.exp += reward // 2
-        user.last_checkin = now
-        user.happiness = min(100, user.happiness + 10)
-        await query.message.reply_text(f"📅 签到成功！获得 {reward} 饲料 和 {reward//2} 经验 🦜")
-
-    session.commit()
-    await show_main_menu(update, context, user)
-    session.close()
-
-# ==================== 喂养 ====================
-async def feed_pet(update: Update, context: ContextTypes.DEFAULT_TYPE):
-    query = update.callback_query
-    await query.answer()
-    user_id = query.from_user.id
-
-    session = Session()
-    user = session.query(UserData).filter_by(user_id=user_id).first()
-    if not user:
-        user = UserData(user_id=user_id)
-        session.add(user)
-
-    if user.feed < 10:
-        await query.message.reply_text("饲料不足！先去签到或在群里发言获得饲料吧～")
-    else:
-        user.feed -= 10
-        user.exp += 15
-        user.hunger = max(0, user.hunger - 20)
-        user.happiness = min(100, user.happiness + 15)
-        await query.message.reply_text("🍎 已成功喂养！鹦鹉很开心 (+15经验)")
-
-        while user.exp >= user.level * 25 and user.level < 9:
-            user.level += 1
-            await query.message.reply_text(f"🎉 恭喜！你的鹦鹉升级到 **{user.level} 级** 了！")
-
-    session.commit()
-    await show_main_menu(update, context, user)
-    session.close()
-
-# ==================== PK 菜单 ====================
-async def pk_menu(update: Update, context: ContextTypes.DEFAULT_TYPE):
-    query = update.callback_query
-    await query.answer()
-
-    keyboard = [
-        [InlineKeyboardButton("🎲 随机匹配PK", callback_data="pk_random")],
-        [InlineKeyboardButton("⬅️ 返回主菜单", callback_data="back_main")]
-    ]
-    await query.message.edit_text("⚔️ 选择PK模式：", reply_markup=InlineKeyboardMarkup(keyboard))
-
-# ==================== 随机PK ====================
-async def pk_random(update: Update, context: ContextTypes.DEFAULT_TYPE):
-    query = update.callback_query
-    await query.answer()
-    user_id = query.from_user.id
-
-    session = Session()
-    player = session.query(UserData).filter_by(user_id=user_id).first()
-    if not player:
-        player = UserData(user_id=user_id)
-        session.add(player)
-
-    opponent_level = max(1, player.level + random.randint(-2, 3))
-    opponent_name = random.choice(["小绿鹦", "胖胖鸟", "聪明哥", "叫叫君", "闪闪"])
-
-    player_power = player.level * 10 + player.happiness + random.randint(0, 30)
-    opponent_power = opponent_level * 10 + random.randint(0, 40)
-
-    if player_power > opponent_power:
-        result = f"🎉 胜利！你的 {player.parrot_name} 打败了 {opponent_name}（{opponent_level}级）"
-        player.wins += 1
-        player.feed += 25
-        player.exp += 20
-    else:
-        result = f"😔 惜败… {opponent_name}（{opponent_level}级）太强了"
-        player.losses += 1
-        player.feed += 8
-
-    await query.message.reply_text(result)
-    session.commit()
-    await show_main_menu(update, context, player)
-    session.close()
-
-# ==================== 按钮总处理器 ====================
-async def button_handler(update: Update, context: ContextTypes.DEFAULT_TYPE):
-    data = update.callback_query.data
-
-    if data == "checkin":
-        await checkin(update, context)
-    elif data == "feed":
-        await feed_pet(update, context)
-    elif data == "pk_menu":
-        await pk_menu(update, context)
-    elif data == "pk_random":
-        await pk_random(update, context)
-    elif data == "my_pet" or data == "ranking" or data == "back_main":
-        await show_main_menu(update, context)
-
-# ==================== 群内发言活跃奖励 ====================
-async def group_chat_activity(update: Update, context: ContextTypes.DEFAULT_TYPE):
-    if not update.message or not update.effective_user or update.effective_user.is_bot:
-        return
-
-    user_id = update.effective_user.id
-    now = datetime.now()
-
-    session = Session()
-    user = session.query(UserData).filter_by(user_id=user_id).first()
-    if not user:
-        user = UserData(user_id=user_id)
-        session.add(user)
-
-    if user.last_chat_activity and user.last_chat_activity.date() != now.date():
-        user.daily_feed_from_chat = 0
-
-    if (user.last_chat_activity and (now - user.last_chat_activity) < timedelta(seconds=60)) or user.daily_feed_from_chat >= 50:
-        session.close()
-        return
-
-    reward = random.randint(1, 3)
-    user.feed += reward
-    user.daily_feed_from_chat += reward
-    user.last_chat_activity = now
-    user.happiness = min(100, user.happiness + 2)
-
-    session.commit()
-    session.close()
-
-    try:
-        await context.bot.send_message(
-            chat_id=user_id,
-            text=f"🦜 群里发言活跃！获得 +{reward} 饲料（今日已获 {user.daily_feed_from_chat}/50）"
+        await (update.message if hasattr(update, 'message') else update.callback_query.message).reply_text(
+            text, reply_markup=markup, parse_mode='Markdown'
         )
-    except:
-        pass
 
-# ==================== Start ====================
+# ================== 按钮回调处理 ===================
+async def button_handler(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    query = update.callback_query
+    await query.answer()
+    action = query.data
+    user_id = query.from_user.id
+    user_data = await get_user_data(user_id)
+
+    # 简化演示操作（你可以在这里补充完整金币、鸟粮等逻辑）
+    result_msg = {
+        "pick_egg": "✅ 捡蛋成功！金币增加",
+        "rush_produce": "✅ 赶产成功！",
+        "clean_dung": "✅ 清扫鸟粪成功！金币+32",
+        "sell_all": "✅ 出售全部完成！",
+        "buy_bird": "✅ 虎皮鹦鹉购买成功！",
+        "refresh": "🔄 牧场已刷新"
+    }
+
+    await query.answer(result_msg.get(action, "操作成功"), show_alert=True)
+
+    # 操作后刷新面板
+    await send_farm_panel(update, context, edit=True)
+
+# ================== 命令菜单设置（重点部分）==================
+async def post_init(application: Application):
+    """机器人启动时自动设置命令菜单（左下角 Menu 按钮）"""
+    commands = [
+        BotCommand("start", "🚀 启动飞鸟牧场"),
+        BotCommand("open", "🐦 打开我的鸟场（带操作面板）"),
+        BotCommand("status", "📊 查看牧场状态"),
+        BotCommand("help", "❓ 帮助与规则"),
+        BotCommand("rules", "📜 游戏规则说明"),
+    ]
+    await application.bot.set_my_commands(commands)
+    print("✅ 机器人命令菜单（Menu面板）已成功设置！")
+
+# ================== 命令处理函数 ===================
 async def start(update: Update, context: ContextTypes.DEFAULT_TYPE):
-    await show_main_menu(update, context)
+    await update.message.reply_text("欢迎来到【QQ牧场·飞鸟饲养】纯文字版！\n点击左下角 **Menu** 按钮或输入 /open 开始养鸟～")
+    await send_farm_panel(update, context)
 
-# ==================== 主程序 ====================
+async def open_farm(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    await send_farm_panel(update, context)
+
+async def status(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    await send_farm_panel(update, context)
+
+async def help_cmd(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    await update.message.reply_text(
+        "🐦 **飞鸟牧场帮助**\n\n"
+        "命令菜单（点击左下角 Menu）：\n"
+        "/start - 启动机器人\n"
+        "/open - 打开带按钮的操作面板\n"
+        "/status - 查看当前牧场状态\n"
+        "/help - 显示帮助\n"
+        "/rules - 游戏规则\n\n"
+        "操作提示：\n直接点击面板上的 Inline 按钮即可进行捡蛋、赶产、清扫、出售等操作。"
+    )
+
+async def rules(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    await update.message.reply_text(
+        "📜 **游戏规则**\n\n"
+        "• 每日偷蛋、帮喂上限 30 次\n"
+        "• 鸟粪每坨可卖 8 金币\n"
+        "• 鸟窝满 4 位后需升级才能继续购买新鸟\n"
+        "• 各类鸟蛋可直接出售或存仓库\n"
+        "• 好友之间可以互相偷蛋和补鸟粮\n\n"
+        "祝你玩得开心！🐦"
+    )
+
+# ================== 文字消息兼容 ===================
+async def handle_message(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    text = update.message.text.strip()
+    if any(k in text for k in ["打开我的鸟场", "我的鸟场", "打开鸟场"]):
+        await send_farm_panel(update, context)
+    else:
+        await update.message.reply_text("请使用左下角 Menu 按钮或输入 /open 打开牧场面板")
+
+# ================== 主函数 ===================
 def main():
-    app = Application.builder().token(TOKEN).build()
+    asyncio.run(init_db())
 
-    app.add_handler(CommandHandler("start", start))
-    app.add_handler(CommandHandler("checkin", start))
-    app.add_handler(CallbackQueryHandler(button_handler))
-    app.add_handler(MessageHandler(filters.TEXT & ~filters.COMMAND & filters.ChatType.GROUPS, group_chat_activity))
+    application = Application.builder() \
+        .token(TOKEN) \
+        .post_init(post_init) \   # ← 命令菜单在这里自动设置
+        .build()
 
-    print("🦜 鹦鹉喂养机器人已启动... 发送 /start 开始使用")
-    app.run_polling()
+    # 命令处理器
+    application.add_handler(CommandHandler("start", start))
+    application.add_handler(CommandHandler("open", open_farm))
+    application.add_handler(CommandHandler("status", status))
+    application.add_handler(CommandHandler("help", help_cmd))
+    application.add_handler(CommandHandler("rules", rules))
 
-if __name__ == "__main__":
+    # Inline 按钮处理器
+    application.add_handler(CallbackQueryHandler(button_handler))
+
+    # 普通文字消息
+    application.add_handler(MessageHandler(filters.TEXT & ~filters.COMMAND, handle_message))
+
+    print("🚀 飞鸟牧场机器人（带命令菜单 + Inline键盘）启动成功！")
+    application.run_polling(allowed_updates=Update.ALL_TYPES)
+
+if __name__ == '__main__':
     main()
