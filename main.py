@@ -49,13 +49,12 @@ def add_exp(user_id: int, amount: int):
     user = get_user_data(user_id)
     user["exp"] += amount
     old_level = user["level"]
-    
     while user["level"] < 9 and user["exp"] >= LEVEL_EXP[user["level"]]:
         user["level"] += 1
         user["gold"] += 200
     return user["level"] > old_level
 
-# ================== 键盘 & 面板 ==================
+# ================== 键盘（新增官网按钮） ==================
 def build_keyboard():
     return InlineKeyboardMarkup([
         [InlineKeyboardButton("🥚 捡蛋", callback_data="pick_egg"),
@@ -63,14 +62,16 @@ def build_keyboard():
         [InlineKeyboardButton("🧹 清扫鸟粪", callback_data="clean_dung"),
          InlineKeyboardButton("💰 出售全部", callback_data="sell_all")],
         [InlineKeyboardButton("🛒 购买虎皮鹦鹉", callback_data="buy_bird")],
+        [InlineKeyboardButton("🦜 官网", callback_data="official_web")],   # 新增
     ])
 
+# ================== 面板 ==================
 async def send_panel(update: Update, edit: bool = False):
     user = get_user_data(update.effective_user.id)
     text = (
         f"🦜 **飞鸟牧场**（{user['level']}级）\n"
         f"💰 金币：{user['gold']}  |  🌾 鸟粮：{user['feed']}\n"
-        f"🦜 鹦鹉：{user['birds']}只  |  🏠 鸟窝：{user['nests']}/4\n"
+        f"🦜 鹦鹉 {user['birds']}只  |  🏠 鸟窝：{user['nests']}/4\n"
         f"⭐ 经验：{user['exp']}/{LEVEL_EXP[user['level']]}"
     )
     markup = build_keyboard()
@@ -82,29 +83,7 @@ async def send_panel(update: Update, edit: bool = False):
     except Exception as e:
         logger.error(f"面板错误: {e}")
 
-# ================== 群内活跃经验 ==================
-async def group_activity(update: Update, context: ContextTypes.DEFAULT_TYPE):
-    if not update.message or not update.message.text:
-        return
-    user_id = update.effective_user.id
-    now = datetime.now().timestamp()
-    user = get_user_data(user_id)
-    
-    if now - user.get("last_active", 0) < 8:
-        return
-    
-    user["last_active"] = now
-    
-    if random.random() < 0.65:
-        exp_gain = random.randint(8, 20)
-        if add_exp(user_id, exp_gain):
-            await update.message.reply_text(
-                f"🎉 恭喜升级！飞鸟牧场升到 **{user['level']}级**！\n+200 金币奖励",
-                parse_mode='Markdown'
-            )
-        save_data()
-
-# ================== 按钮处理器 ==================
+# ================== 按钮处理器（新增官网处理） ==================
 async def button_handler(update: Update, context: ContextTypes.DEFAULT_TYPE):
     query = update.callback_query
     user = get_user_data(update.effective_user.id)
@@ -112,6 +91,15 @@ async def button_handler(update: Update, context: ContextTypes.DEFAULT_TYPE):
     await query.answer("✅ 操作成功！")
 
     try:
+        if data == "official_web":
+            await query.message.reply_text(
+                "🦜 **飞鸟牧场官网**\n"
+                "https://www.niaocoin.xyz/",
+                parse_mode='Markdown'
+            )
+            return  # 不刷新面板
+
+        # 原有功能
         if data == "pick_egg":
             reward = 80 + user['birds'] * 25 + user['level'] * 15
             user['gold'] += reward
@@ -145,7 +133,31 @@ async def button_handler(update: Update, context: ContextTypes.DEFAULT_TYPE):
     except Exception as e:
         logger.error(f"按钮错误: {e}")
 
-# ================== 独立命令处理器（修复 SyntaxError） ==================
+# ================== 其他命令（保持不变） ==================
+async def start(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    await update.message.reply_text("🎉 欢迎来到飞鸟牧场！\n在群里聊天可获得经验升级哦～")
+    await send_panel(update)
+
+async def open_farm(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    await send_panel(update)
+
+async def rank(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    sorted_users = sorted(user_data.items(), key=lambda x: x[1]['gold'], reverse=True)[:10]
+    text = "🏆 **飞鸟牧场全球排行榜** 🏆\n\n"
+    for i, (uid, d) in enumerate(sorted_users, 1):
+        text += f"{i}. 用户{uid[-4:]} — 💰 {d['gold']}金币（{d.get('level',1)}级）\n"
+    await update.message.reply_text(text, parse_mode='Markdown')
+
+async def checkin(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    user = get_user_data(update.effective_user.id)
+    user['feed'] += 25
+    save_data()
+    await update.message.reply_text("📅 签到成功！获得 25 鸟粮")
+
+async def help_cmd(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    await update.message.reply_text("使用 /start 或 /open 打开面板\n/rank 查看排行榜")
+
+# ================== 命令处理器 ==================
 async def cmd_pick(update: Update, context: ContextTypes.DEFAULT_TYPE):
     user = get_user_data(update.effective_user.id)
     reward = 80 + user['birds'] * 25 + user['level'] * 15
@@ -182,29 +194,6 @@ async def cmd_buy(update: Update, context: ContextTypes.DEFAULT_TYPE):
     else:
         await update.message.reply_text("❌ 金币不足或鸟窝已满")
 
-async def start(update: Update, context: ContextTypes.DEFAULT_TYPE):
-    await update.message.reply_text("🎉 欢迎来到飞鸟牧场！\n在群里聊天可获得经验升级哦～")
-    await send_panel(update)
-
-async def open_farm(update: Update, context: ContextTypes.DEFAULT_TYPE):
-    await send_panel(update)
-
-async def rank(update: Update, context: ContextTypes.DEFAULT_TYPE):
-    sorted_users = sorted(user_data.items(), key=lambda x: x[1]['gold'], reverse=True)[:10]
-    text = "🏆 **飞鸟牧场全球排行榜** 🏆\n\n"
-    for i, (uid, d) in enumerate(sorted_users, 1):
-        text += f"{i}. 用户{uid[-4:]} — 💰 {d['gold']}金币（{d.get('level',1)}级）\n"
-    await update.message.reply_text(text, parse_mode='Markdown')
-
-async def checkin(update: Update, context: ContextTypes.DEFAULT_TYPE):
-    user = get_user_data(update.effective_user.id)
-    user['feed'] += 25
-    save_data()
-    await update.message.reply_text("📅 签到成功！获得 25 鸟粮")
-
-async def help_cmd(update: Update, context: ContextTypes.DEFAULT_TYPE):
-    await update.message.reply_text("使用 /start 或 /open 打开面板\n/rank 查看排行榜")
-
 # ================== 错误处理 ==================
 async def error_handler(update: Update, context: ContextTypes.DEFAULT_TYPE):
     logger.error(f"全局错误: {context.error}", exc_info=True)
@@ -230,7 +219,7 @@ def main():
     load_data()
     app = Application.builder().token(TOKEN).post_init(post_init).build()
 
-    # 命令处理器
+    # 命令
     app.add_handler(CommandHandler("start", start))
     app.add_handler(CommandHandler("open", open_farm))
     app.add_handler(CommandHandler("pick", cmd_pick))
@@ -245,12 +234,12 @@ def main():
     # 按钮
     app.add_handler(CallbackQueryHandler(button_handler))
     
-    # 群内活跃经验
+    # 群内活跃
     app.add_handler(MessageHandler(filters.TEXT & ~filters.COMMAND & (filters.ChatType.GROUP | filters.ChatType.SUPERGROUP), group_activity))
 
     app.add_error_handler(error_handler)
 
-    logger.info("🚀 飞鸟牧场机器人启动成功！")
+    logger.info("🚀 飞鸟牧场机器人启动成功！（含官网按钮）")
     app.run_polling(drop_pending_updates=True)
 
 if __name__ == '__main__':
