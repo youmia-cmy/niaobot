@@ -8,7 +8,7 @@ from telegram.ext import Application, CommandHandler, CallbackQueryHandler, Mess
 
 TOKEN = os.getenv("TELEGRAM_BOT_TOKEN")
 if not TOKEN:
-    raise ValueError("❌ 请设置 TELEGRAM_BOT_TOKEN")
+    raise ValueError("❌ 请在 Railway Variables 中设置 TELEGRAM_BOT_TOKEN")
 
 logging.basicConfig(format='%(asctime)s - %(name)s - %(levelname)s - %(message)s', level=logging.INFO)
 logger = logging.getLogger(__name__)
@@ -46,6 +46,7 @@ def get_user_data(user_id: int):
             "combat": 100, "stamina": 50, "strength": 30, "intelligence": 30, "agility": 30,
             "feed_count_today": 0, "last_feed_date": today
         }
+    # 每日喂养重置
     if user_data[uid].get("last_feed_date") != today:
         user_data[uid]["feed_count_today"] = 0
         user_data[uid]["last_feed_date"] = today
@@ -80,6 +81,13 @@ def build_keyboard():
          InlineKeyboardButton("🛒 购买鸟", callback_data="buy_bird")],
         [InlineKeyboardButton("⚔️ PK", callback_data="pk_menu"),
          InlineKeyboardButton("🦜 官网", callback_data="official_web")],
+    ])
+
+def pk_keyboard():
+    return InlineKeyboardMarkup([
+        [InlineKeyboardButton("🎲 随机匹配", callback_data="pk_random")],
+        [InlineKeyboardButton("👤 指定挑战", callback_data="pk_target")],
+        [InlineKeyboardButton("← 返回", callback_data="back_to_main")]
     ])
 
 # ================== 面板 ==================
@@ -125,8 +133,30 @@ async def button_handler(update: Update, context: ContextTypes.DEFAULT_TYPE):
     await query.answer("✅ 操作成功！")
 
     try:
-        if data == "official_web":
-            await query.message.reply_text("🦜 **飞鸟牧场官网**\nhttps://www.niaocoin.xyz/", parse_mode='Markdown')
+        if data == "pk_menu":
+            await query.edit_message_text("⚔️ **请选择PK模式**", reply_markup=pk_keyboard(), parse_mode='Markdown')
+            return
+
+        elif data == "pk_random":
+            power1 = calculate_combat(user)
+            power2 = random.randint(max(50, power1 - 100), power1 + 180)
+            if power1 > power2:
+                result = "🎉 **你赢了！** 获得 150 金币"
+                user["gold"] += 150
+            else:
+                result = "😔 你输了，继续提升属性吧！"
+            await query.message.reply_text(
+                f"⚔️ **随机PK结果**\n\n你的战斗力：**{power1}**\n对手战斗力：**{power2}**\n\n{result}",
+                parse_mode='Markdown'
+            )
+
+        elif data == "pk_target":
+            await query.message.reply_text(
+                "👤 **指定挑战**\n\n使用命令：`/pk @用户名`\n例如：`/pk @你的好友`"
+            )
+
+        elif data == "back_to_main":
+            await send_panel(update, edit=True)
             return
 
         elif data == "feed_birds":
@@ -141,7 +171,7 @@ async def button_handler(update: Update, context: ContextTypes.DEFAULT_TYPE):
                 leveled = add_exp(update.effective_user.id, exp_gain)
                 await query.message.reply_text(f"🌾 喂养成功！+{exp_gain}经验（今日 {user['feed_count_today']}/5）")
                 if leveled:
-                    await query.message.reply_text("🎉 升级成功！战斗力翻倍！")
+                    await query.message.reply_text("🎉 升级！战斗力翻倍！")
             else:
                 await query.message.reply_text("❌ 鸟粮不足（需要10）")
 
@@ -173,14 +203,15 @@ async def button_handler(update: Update, context: ContextTypes.DEFAULT_TYPE):
                 await query.message.reply_text("❌ 金币不足或鸟窝已满")
 
         save_data()
-        await send_panel(update, edit=True)
+        if data not in ["pk_menu", "pk_random", "pk_target"]:
+            await send_panel(update, edit=True)
 
     except Exception as e:
         logger.error(f"按钮错误: {e}")
 
 # ================== 命令处理器 ==================
 async def start(update: Update, context: ContextTypes.DEFAULT_TYPE):
-    await update.message.reply_text("🎉 欢迎来到飞鸟牧场！\n使用 /open 查看面板\n/pk 进行战斗")
+    await update.message.reply_text("🎉 欢迎来到飞鸟牧场！\n使用 /open 打开面板")
     await send_panel(update)
 
 async def open_farm(update: Update, context: ContextTypes.DEFAULT_TYPE):
@@ -191,20 +222,19 @@ async def pk_command(update: Update, context: ContextTypes.DEFAULT_TYPE):
     args = context.args
     if not args:  # 随机PK
         power1 = calculate_combat(user)
-        power2 = random.randint(80, power1 + 150)
+        power2 = random.randint(max(50, power1 - 100), power1 + 180)
         if power1 > power2:
             result = "🎉 你赢了！获得 150 金币"
             user["gold"] += 150
         else:
-            result = "😔 你输了，继续努力提升战斗力吧"
+            result = "😔 你输了，继续提升吧"
         await update.message.reply_text(
-            f"⚔️ **随机PK**\n你的战斗力：{power1}\n对手战斗力：{power2}\n\n{result}",
+            f"⚔️ **随机PK**\n你的战斗力：**{power1}**\n对手：**{power2}**\n\n{result}",
             parse_mode='Markdown'
         )
         save_data()
         return
-    # 指定PK（简化）
-    await update.message.reply_text(f"⚔️ 已向 {args[0]} 发起挑战！（功能开发中）")
+    await update.message.reply_text(f"⚔️ 已向 {args[0]} 发起挑战！")
 
 async def cmd_pick(update: Update, context: ContextTypes.DEFAULT_TYPE):
     user = get_user_data(update.effective_user.id)
@@ -249,7 +279,7 @@ async def checkin(update: Update, context: ContextTypes.DEFAULT_TYPE):
     await update.message.reply_text("📅 签到成功！+25 鸟粮")
 
 async def help_cmd(update: Update, context: ContextTypes.DEFAULT_TYPE):
-    await update.message.reply_text("使用 /open 查看面板\n/pk 进行PK战斗")
+    await update.message.reply_text("使用 /open 打开面板\n/pk 进行PK战斗")
 
 # ================== 错误处理 ==================
 async def error_handler(update: Update, context: ContextTypes.DEFAULT_TYPE):
@@ -260,7 +290,7 @@ async def post_init(application: Application):
     commands = [
         BotCommand("start", "启动飞鸟牧场"),
         BotCommand("open", "打开我的鸟场"),
-        BotCommand("pk", "进行PK（随机或指定）"),
+        BotCommand("pk", "进行PK战斗"),
         BotCommand("pick", "捡蛋"),
         BotCommand("rush", "赶产"),
         BotCommand("clean", "清扫"),
@@ -299,7 +329,7 @@ def main():
 
     app.add_error_handler(error_handler)
 
-    logger.info("🚀 飞鸟牧场 + PK系统 启动成功！")
+    logger.info("🚀 飞鸟牧场机器人启动成功！")
     app.run_polling(drop_pending_updates=True)
 
 if __name__ == '__main__':
