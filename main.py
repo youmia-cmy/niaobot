@@ -115,19 +115,22 @@ async def send_panel(update: Update, edit: bool = False):
     except Exception as e:
         logger.error(f"面板错误: {e}")
 
-# ================== 群ID记录 ==================
+# ================== 自动删除消息 ==================
+async def delete_later(context: ContextTypes.DEFAULT_TYPE):
+    try:
+        await context.bot.delete_message(context.job.data['chat_id'], context.job.data['message_id'])
+    except:
+        pass
+
+# ================== 群ID记录 & 每日签到 ==================
 async def track_group(update: Update, context: ContextTypes.DEFAULT_TYPE):
     if update.my_chat_member and update.my_chat_member.new_chat_member.status in ["member", "administrator"]:
         chat_id = update.effective_chat.id
         if chat_id not in group_ids:
             group_ids.add(chat_id)
             save_data()
-            try:
-                await context.bot.send_message(chat_id, "✅ 机器人已加入群组！每日签到通知已开启。")
-            except:
-                pass
+            await context.bot.send_message(chat_id, "✅ 机器人已加入群组！每日签到通知已开启。")
 
-# ================== 每日签到通知 ==================
 async def daily_checkin_notice(context: ContextTypes.DEFAULT_TYPE):
     keyboard = InlineKeyboardMarkup([[InlineKeyboardButton("📅 立即签到", callback_data="daily_checkin")]])
     for gid in list(group_ids):
@@ -140,16 +143,6 @@ async def daily_checkin_notice(context: ContextTypes.DEFAULT_TYPE):
             )
         except:
             pass
-
-# ================== 2秒自动删除消息 ==================
-async def delete_later(context: ContextTypes.DEFAULT_TYPE):
-    try:
-        await context.bot.delete_message(
-            chat_id=context.job.data['chat_id'],
-            message_id=context.job.data['message_id']
-        )
-    except:
-        pass
 
 # ================== 完整按钮处理器 ==================
 async def button_handler(update: Update, context: ContextTypes.DEFAULT_TYPE):
@@ -175,6 +168,27 @@ async def button_handler(update: Update, context: ContextTypes.DEFAULT_TYPE):
             if leveled:
                 await query.message.reply_text("🎉 升级了！")
         save_data()
+
+    elif data == "pk_menu":
+        await query.edit_message_text("⚔️ **请选择PK模式**", reply_markup=pk_keyboard(), parse_mode='Markdown')
+        return
+
+    elif data == "pk_random":
+        power1 = calculate_combat(user)
+        power2 = random.randint(max(30, power1 - 120), power1 + 200)
+        if power1 > power2:
+            result = "🎉 你赢了！+150 金币"
+            user["gold"] += 150
+        else:
+            result = "😔 你输了"
+        reply = await query.message.reply_text(f"⚔️ **随机PK**\n你的战力：**{power1}**\n对手战力：**{power2}**\n\n{result}", parse_mode='Markdown')
+
+    elif data == "pk_target":
+        reply = await query.message.reply_text("👤 使用 `/pk @用户名` 发起挑战")
+
+    elif data == "back_to_main":
+        await send_panel(update, edit=True)
+        return
 
     elif data == "feed_birds":
         today = str(date.today())
@@ -219,7 +233,7 @@ async def button_handler(update: Update, context: ContextTypes.DEFAULT_TYPE):
         user['gold'] += earnings
         reply = await query.message.reply_text(f"✅ 出售成功！获得 {earnings} 金币")
 
-    # 2秒后自动删除提示
+    # 2秒后自动删除提示消息
     if reply:
         context.job_queue.run_once(delete_later, 2, data={'chat_id': reply.chat_id, 'message_id': reply.message_id})
 
@@ -227,7 +241,7 @@ async def button_handler(update: Update, context: ContextTypes.DEFAULT_TYPE):
     if data not in ["pk_menu", "pk_random", "pk_target", "daily_checkin"]:
         await send_panel(update, edit=True)
 
-# ================== 命令处理器 ==================
+# ================== 命令 ==================
 async def start(update: Update, context: ContextTypes.DEFAULT_TYPE):
     get_user_data(update.effective_user.id, update.effective_user)
     await update.message.reply_text("🎉 欢迎来到飞鸟牧场！初始金币 **1000**")
