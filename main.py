@@ -1,65 +1,83 @@
 import logging
+import os
 import random
 from telegram import Update, InlineKeyboardButton, InlineKeyboardMarkup, BotCommand
-from telegram.ext import Application, CommandHandler, CallbackQueryHandler, ContextTypes, MessageHandler, filters
+from telegram.ext import Application, CommandHandler, CallbackQueryHandler, ContextTypes
 
 TOKEN = os.getenv("TELEGRAM_BOT_TOKEN")
 if not TOKEN:
-    raise ValueError("❌ 请设置 TELEGRAM_BOT_TOKEN")
+    raise ValueError("❌ 请在 Railway Variables 中设置 TELEGRAM_BOT_TOKEN")
 
 logging.basicConfig(format='%(asctime)s - %(name)s - %(levelname)s - %(message)s', level=logging.INFO)
 
 # ================== Inline 键盘 ==================
 def build_keyboard():
     keyboard = [
-        [InlineKeyboardButton("🐦 捡蛋", callback_data="pick"),
-         InlineKeyboardButton("⚡ 赶产", callback_data="rush")],
-        [InlineKeyboardButton("🧹 清扫鸟粪", callback_data="clean"),
-         InlineKeyboardButton("💰 出售全部", callback_data="sell")],
-        [InlineKeyboardButton("🛒 购买虎皮鹦鹉", callback_data="buy")],
+        [InlineKeyboardButton("🐦 捡蛋", callback_data="pick_egg"),
+         InlineKeyboardButton("⚡ 赶产", callback_data="rush_produce")],
+        [InlineKeyboardButton("🧹 清扫鸟粪", callback_data="clean_dung"),
+         InlineKeyboardButton("💰 出售全部", callback_data="sell_all")],
+        [InlineKeyboardButton("🛒 购买虎皮鹦鹉", callback_data="buy_bird")],
     ]
     return InlineKeyboardMarkup(keyboard)
 
 async def send_panel(update: Update, context: ContextTypes.DEFAULT_TYPE, edit=False):
-    text = "🐦 **飞鸟牧场** \n\n💰 金币：9600 | 🌾 鸟粮：72\n🏠 鸟窝：4/4\n\n点击按钮操作～"
+    text = (
+        "🐦 **你的飞鸟牧场**（4级）\n"
+        "💰 金币：9600 | 🌾 鸟粮：72\n"
+        "🏠 鸟窝：4/4\n\n"
+        "▫️ 麻雀×2：✅ 可立即捡蛋\n"
+        "▫️ 鸽子×1：✅ 可立即捡蛋\n"
+        "▫️ 珍珠鸟×1：4小时后\n\n"
+        "点击下方按钮操作～"
+    )
+    markup = build_keyboard()
     if edit and update.callback_query:
-        await update.callback_query.edit_message_text(text, reply_markup=build_keyboard(), parse_mode='Markdown')
+        await update.callback_query.edit_message_text(text, reply_markup=markup, parse_mode='Markdown')
     else:
-        await update.message.reply_text(text, reply_markup=build_keyboard(), parse_mode='Markdown')
+        await update.message.reply_text(text, reply_markup=markup, parse_mode='Markdown')
 
+# ================== 按钮功能 ==================
 async def button_handler(update: Update, context: ContextTypes.DEFAULT_TYPE):
     query = update.callback_query
     action = query.data
-    await query.answer("✅ 操作成功！", show_alert=True)
+    msg = {
+        "pick_egg": "✅ 捡蛋成功！金币 +120",
+        "rush_produce": "✅ 赶产成功！",
+        "clean_dung": "✅ 清扫鸟粪成功！金币 +32",
+        "sell_all": "✅ 出售全部完成！金币 +250",
+        "buy_bird": "✅ 购买虎皮鹦鹉成功！",
+    }
+    await query.answer(msg.get(action, "✅ 操作成功"), show_alert=True)
     await send_panel(update, context, edit=True)
 
-# ================== 对应你菜单的命令功能 ==================
+# ================== 命令功能（对应你的菜单） ==================
 async def start(update: Update, context: ContextTypes.DEFAULT_TYPE):
-    await update.message.reply_text("✅ 欢迎来到飞鸟牧场！\n点击下方按钮或使用菜单命令操作～")
+    await update.message.reply_text("✅ 欢迎来到【QQ牧场·飞鸟饲养】！")
     await send_panel(update, context)
 
 async def open_farm(update: Update, context: ContextTypes.DEFAULT_TYPE):
     await send_panel(update, context)
 
-async def pick(update: Update, context: ContextTypes.DEFAULT_TYPE):
+async def pick_egg(update: Update, context: ContextTypes.DEFAULT_TYPE):
     await update.message.reply_text("✅ 捡蛋成功！获得鸟蛋 ×2，金币 +100")
 
-async def rush(update: Update, context: ContextTypes.DEFAULT_TYPE):
-    await update.message.reply_text("✅ 赶产成功！鸟更快产蛋了")
+async def rush_produce(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    await update.message.reply_text("✅ 赶产成功！鸟开始加速生产")
 
-async def clean(update: Update, context: ContextTypes.DEFAULT_TYPE):
+async def clean_dung(update: Update, context: ContextTypes.DEFAULT_TYPE):
     await update.message.reply_text("✅ 清扫鸟粪成功！获得金币 +32")
 
-async def sell(update: Update, context: ContextTypes.DEFAULT_TYPE):
+async def sell_all(update: Update, context: ContextTypes.DEFAULT_TYPE):
     await update.message.reply_text("✅ 出售全部完成！金币 +250")
 
-async def buy(update: Update, context: ContextTypes.DEFAULT_TYPE):
-    await update.message.reply_text("✅ 购买虎皮鹦鹉成功！鸟窝已增加")
+async def buy_bird(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    await update.message.reply_text("✅ 购买虎皮鹦鹉成功！鸟窝位已更新")
 
 async def help_cmd(update: Update, context: ContextTypes.DEFAULT_TYPE):
-    await update.message.reply_text("使用菜单中的命令或点击按钮操作飞鸟牧场。")
+    await update.message.reply_text("使用 /start 或 /open 打开牧场面板，点击按钮操作。")
 
-# ================== 命令菜单设置 ==================
+# ================== 命令菜单 ==================
 async def post_init(application: Application):
     commands = [
         BotCommand("start", "启动飞鸟牧场"),
@@ -72,17 +90,18 @@ async def post_init(application: Application):
         BotCommand("help", "帮助"),
     ]
     await application.bot.set_my_commands(commands)
+    print("✅ 命令菜单已更新为飞鸟牧场版本")
 
 def main():
     application = Application.builder().token(TOKEN).post_init(post_init).build()
 
     application.add_handler(CommandHandler("start", start))
     application.add_handler(CommandHandler("open", open_farm))
-    application.add_handler(CommandHandler("pick", pick))
-    application.add_handler(CommandHandler("rush", rush))
-    application.add_handler(CommandHandler("clean", clean))
-    application.add_handler(CommandHandler("sell", sell))
-    application.add_handler(CommandHandler("buy", buy))
+    application.add_handler(CommandHandler("pick", pick_egg))
+    application.add_handler(CommandHandler("rush", rush_produce))
+    application.add_handler(CommandHandler("clean", clean_dung))
+    application.add_handler(CommandHandler("sell", sell_all))
+    application.add_handler(CommandHandler("buy", buy_bird))
     application.add_handler(CommandHandler("help", help_cmd))
     application.add_handler(CallbackQueryHandler(button_handler))
 
