@@ -4,7 +4,11 @@ import json
 import random
 from datetime import datetime, date, time
 from telegram import Update, InlineKeyboardButton, InlineKeyboardMarkup, BotCommand
-from telegram.ext import Application, CommandHandler, CallbackQueryHandler, MessageHandler, filters, ContextTypes, JobQueue
+from telegram.ext import (
+    Application, CommandHandler, CallbackQueryHandler, 
+    MessageHandler, filters, ContextTypes, JobQueue, 
+    ChatMemberHandler
+)
 
 TOKEN = os.getenv("TELEGRAM_BOT_TOKEN")
 if not TOKEN:
@@ -80,7 +84,7 @@ def calculate_combat(user):
 # ================== 键盘 ==================
 def build_keyboard():
     return InlineKeyboardMarkup([
-        [InlineKeyboardButton("🐦 捡蛋", callback_data="pick_egg"), InlineKeyboardButton("⚡ 赶产", callback_data="rush_produce")],
+        [InlineKeyboardButton("🥚 捡蛋", callback_data="pick_egg"), InlineKeyboardButton("⚡ 赶产", callback_data="rush_produce")],
         [InlineKeyboardButton("🌾 喂养", callback_data="feed_birds"), InlineKeyboardButton("🧹 清扫", callback_data="clean_dung")],
         [InlineKeyboardButton("💰 出售全部", callback_data="sell_all"), InlineKeyboardButton("🛒 购买🦜", callback_data="buy_bird")],
         [InlineKeyboardButton("⚔️ PK", callback_data="pk_menu"), InlineKeyboardButton("🦜 官网", callback_data="official_web")],
@@ -97,7 +101,7 @@ async def send_panel(update: Update, edit: bool = False):
     user = get_user_data(update.effective_user.id)
     combat = calculate_combat(user)
     text = (
-        f"🐦 **飞鸟牧场**（{user['level']}级）\n"
+        f"🦜 **飞鸟牧场**（{user['level']}级）\n"
         f"💰 金币：{user['gold']}  |  🌾 鸟粮：{user['feed']}\n"
         f"🦜 鹦鹉：{user['birds']}/4  |  ⚔️ 战斗力：{combat}\n"
         f"⭐ 经验：{user['exp']}/{[0,100,300,600,1000,1500,2200,3000,4000,999999][user['level']]}"
@@ -111,15 +115,19 @@ async def send_panel(update: Update, edit: bool = False):
     except Exception as e:
         logger.error(f"面板错误: {e}")
 
-# ================== 群ID记录 & 每日签到 ==================
+# ================== 自动记录群ID ==================
 async def track_group(update: Update, context: ContextTypes.DEFAULT_TYPE):
     if update.my_chat_member and update.my_chat_member.new_chat_member.status in ["member", "administrator"]:
         chat_id = update.effective_chat.id
         if chat_id not in group_ids:
             group_ids.add(chat_id)
             save_data()
-            await context.bot.send_message(chat_id, "✅ 机器人已加入群组！每日签到通知已开启。")
+            try:
+                await context.bot.send_message(chat_id, "✅ 机器人已成功加入群组！每日签到通知已开启。")
+            except:
+                pass
 
+# ================== 每日签到通知 ==================
 async def daily_checkin_notice(context: ContextTypes.DEFAULT_TYPE):
     keyboard = InlineKeyboardMarkup([[InlineKeyboardButton("📅 立即签到", callback_data="daily_checkin")]])
     for gid in list(group_ids):
@@ -133,7 +141,7 @@ async def daily_checkin_notice(context: ContextTypes.DEFAULT_TYPE):
         except:
             pass
 
-# ================== 完整按钮处理器 ==================
+# ================== 按钮处理器 ==================
 async def button_handler(update: Update, context: ContextTypes.DEFAULT_TYPE):
     query = update.callback_query
     user = get_user_data(update.effective_user.id)
@@ -248,18 +256,22 @@ def main():
     load_data()
     app = Application.builder().token(TOKEN).build()
 
-    # 每日签到（北京时间00:00）
+    # 每日签到任务
     try:
         app.job_queue.run_daily(daily_checkin_notice, time=time(0, 0, 0))
         logger.info("每日签到任务已设置")
     except Exception as e:
         logger.warning(f"JobQueue 设置失败: {e}")
 
+    # 自动记录群ID
     app.add_handler(ChatMemberHandler(track_group, ChatMemberHandler.MY_CHAT_MEMBER))
 
+    # 命令
     app.add_handler(CommandHandler("start", start))
     app.add_handler(CommandHandler("open", open_farm))
     app.add_handler(CommandHandler("pk", pk_command))
+
+    # 按钮
     app.add_handler(CallbackQueryHandler(button_handler))
 
     logger.info("🚀 完整版机器人启动成功！")
