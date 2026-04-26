@@ -53,7 +53,6 @@ def add_exp(user_id: int, amount: int):
     while user["level"] < 9 and user["exp"] >= LEVEL_EXP[user["level"]]:
         user["level"] += 1
         user["gold"] += 200
-    
     return user["level"] > old_level
 
 # ================== 键盘 & 面板 ==================
@@ -63,7 +62,7 @@ def build_keyboard():
          InlineKeyboardButton("⚡ 赶产", callback_data="rush_produce")],
         [InlineKeyboardButton("🧹 清扫鸟粪", callback_data="clean_dung"),
          InlineKeyboardButton("💰 出售全部", callback_data="sell_all")],
-        [InlineKeyboardButton("🛒 购买虎皮🦜", callback_data="buy_bird")],
+        [InlineKeyboardButton("🛒 购买虎皮鹦鹉", callback_data="buy_bird")],
     ])
 
 async def send_panel(update: Update, edit: bool = False):
@@ -146,7 +145,43 @@ async def button_handler(update: Update, context: ContextTypes.DEFAULT_TYPE):
     except Exception as e:
         logger.error(f"按钮错误: {e}")
 
-# ================== 命令处理器 ==================
+# ================== 独立命令处理器（修复 SyntaxError） ==================
+async def cmd_pick(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    user = get_user_data(update.effective_user.id)
+    reward = 80 + user['birds'] * 25 + user['level'] * 15
+    user['gold'] += reward
+    save_data()
+    await update.message.reply_text(f"✅ 捡蛋成功！获得 {reward} 金币")
+
+async def cmd_rush(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    user = get_user_data(update.effective_user.id)
+    user['feed'] = min(user['feed'] + 20, 300)
+    save_data()
+    await update.message.reply_text("✅ 赶产成功！鸟粮 +20")
+
+async def cmd_clean(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    add_exp(update.effective_user.id, 30)
+    save_data()
+    await update.message.reply_text("✅ 清扫成功！+30 经验")
+
+async def cmd_sell(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    user = get_user_data(update.effective_user.id)
+    earnings = user['birds'] * (120 + user['level'] * 20)
+    user['gold'] += earnings
+    save_data()
+    await update.message.reply_text(f"✅ 出售成功！获得 {earnings} 金币")
+
+async def cmd_buy(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    user = get_user_data(update.effective_user.id)
+    cost = max(600, 800 - user['level'] * 30)
+    if user['gold'] >= cost and user['birds'] < user['nests']:
+        user['gold'] -= cost
+        user['birds'] += 1
+        save_data()
+        await update.message.reply_text("✅ 购买成功！")
+    else:
+        await update.message.reply_text("❌ 金币不足或鸟窝已满")
+
 async def start(update: Update, context: ContextTypes.DEFAULT_TYPE):
     await update.message.reply_text("🎉 欢迎来到飞鸟牧场！\n在群里聊天可获得经验升级哦～")
     await send_panel(update)
@@ -195,20 +230,22 @@ def main():
     load_data()
     app = Application.builder().token(TOKEN).post_init(post_init).build()
 
-    # 命令
+    # 命令处理器
     app.add_handler(CommandHandler("start", start))
     app.add_handler(CommandHandler("open", open_farm))
+    app.add_handler(CommandHandler("pick", cmd_pick))
+    app.add_handler(CommandHandler("rush", cmd_rush))
+    app.add_handler(CommandHandler("clean", cmd_clean))
+    app.add_handler(CommandHandler("sell", cmd_sell))
+    app.add_handler(CommandHandler("buy", cmd_buy))
     app.add_handler(CommandHandler("rank", rank))
     app.add_handler(CommandHandler("checkin", checkin))
     app.add_handler(CommandHandler("help", help_cmd))
-    app.add_handler(CommandHandler("pick", lambda u,c: (get_user_data(u.effective_user.id)['gold'] += 100, save_data(), u.message.reply_text("✅ 捡蛋成功！+100金币"))[2]))
-    app.add_handler(CommandHandler("rush", lambda u,c: (get_user_data(u.effective_user.id)['feed'] += 20, save_data(), u.message.reply_text("✅ 赶产成功！"))[2]))
-    # 其他命令可继续简化
 
     # 按钮
     app.add_handler(CallbackQueryHandler(button_handler))
     
-    # 群内活跃（只在群里生效）
+    # 群内活跃经验
     app.add_handler(MessageHandler(filters.TEXT & ~filters.COMMAND & (filters.ChatType.GROUP | filters.ChatType.SUPERGROUP), group_activity))
 
     app.add_error_handler(error_handler)
