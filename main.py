@@ -12,7 +12,7 @@ logging.basicConfig(format='%(asctime)s - %(name)s - %(levelname)s - %(message)s
 # ================== Inline 键盘（飞鸟牧场操作面板） ==================
 def build_keyboard():
     keyboard = [
-        [InlineKeyboardButton("🐦 捡蛋", callback_data="pick_egg"),
+        [InlineKeyboardButton("🥚 捡蛋", callback_data="pick_egg"),
          InlineKeyboardButton("⚡ 赶产", callback_data="rush_produce")],
         [InlineKeyboardButton("🧹 清扫鸟粪", callback_data="clean_dung"),
          InlineKeyboardButton("💰 出售全部", callback_data="sell_all")],
@@ -44,7 +44,7 @@ async def button_handler(update: Update, context: ContextTypes.DEFAULT_TYPE):
 
 # ================== 命令处理 ==================
 async def start(update: Update, context: ContextTypes.DEFAULT_TYPE):
-    await update.message.reply_text("✅ 欢迎来到【QQ牧场·飞鸟饲养】！\n点击下方按钮开始养鸟～")
+    await update.message.reply_text("✅ 欢迎来到【飞鸟饲养】！\n点击下方按钮开始养鸟～")
     await send_farm_panel(update, context)
 
 async def help_cmd(update: Update, context: ContextTypes.DEFAULT_TYPE):
