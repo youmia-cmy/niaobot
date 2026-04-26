@@ -36,14 +36,14 @@ async def button_handler(update: Update, context: ContextTypes.DEFAULT_TYPE):
 
 # ================== 命令功能 ==================
 async def start(update: Update, context: ContextTypes.DEFAULT_TYPE):
-    await update.message.reply_text("✅ 欢迎来到飞鸟牧场！")
+    await update.message.reply_text("✅ 欢迎来到飞鸟牧场！\n点击下方按钮或使用菜单命令")
     await send_panel(update, context)
 
 async def open_farm(update: Update, context: ContextTypes.DEFAULT_TYPE):
     await send_panel(update, context)
 
 async def pick_egg(update: Update, context: ContextTypes.DEFAULT_TYPE):
-    await update.message.reply_text("✅ 捡蛋成功！")
+    await update.message.reply_text("✅ 捡蛋成功！金币 +100")
 
 async def rush_produce(update: Update, context: ContextTypes.DEFAULT_TYPE):
     await update.message.reply_text("✅ 赶产成功！")
@@ -58,7 +58,7 @@ async def buy_bird(update: Update, context: ContextTypes.DEFAULT_TYPE):
     await update.message.reply_text("✅ 购买虎皮鹦鹉成功！")
 
 async def help_cmd(update: Update, context: ContextTypes.DEFAULT_TYPE):
-    await update.message.reply_text("使用菜单或按钮操作飞鸟牧场。")
+    await update.message.reply_text("使用 /start 或 /open 打开面板")
 
 async def post_init(application: Application):
     commands = [
