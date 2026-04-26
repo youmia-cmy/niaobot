@@ -44,7 +44,7 @@ def save_data():
     except Exception as e:
         logger.error(f"保存失败: {e}")
 
-def get_user_data(user_id: int):
+def get_user_data(user_id: int, effective_user=None):
     uid = str(user_id)
     today = str(date.today())
     if uid not in user_data:
@@ -55,6 +55,12 @@ def get_user_data(user_id: int):
             "feed_count_today": 0, "last_feed_date": today, "last_checkin": "",
             "nickname": ""
         }
+    # 优先更新昵称
+    if effective_user:
+        full_name = effective_user.full_name or effective_user.first_name or ""
+        username = f"@{effective_user.username}" if effective_user.username else ""
+        nickname = full_name if full_name else username
+        user_data[uid]["nickname"] = nickname or f"用户{uid[-4:]}"
     return user_data[uid]
 
 def add_exp(user_id: int, amount: int):
@@ -96,7 +102,7 @@ def pk_keyboard():
     ])
 
 async def send_panel(update: Update, edit: bool = False):
-    user = get_user_data(update.effective_user.id)
+    user = get_user_data(update.effective_user.id, update.effective_user)
     combat = calculate_combat(user)
     text = (
         f"🦜 **飞鸟牧场**（{user['level']}级）\n"
@@ -113,19 +119,15 @@ async def send_panel(update: Update, edit: bool = False):
     except Exception as e:
         logger.error(f"面板错误: {e}")
 
-# ================== 群ID记录 ==================
+# ================== 群ID记录 & 每日签到 ==================
 async def track_group(update: Update, context: ContextTypes.DEFAULT_TYPE):
     if update.my_chat_member and update.my_chat_member.new_chat_member.status in ["member", "administrator"]:
         chat_id = update.effective_chat.id
         if chat_id not in group_ids:
             group_ids.add(chat_id)
             save_data()
-            try:
-                await context.bot.send_message(chat_id, "✅ 机器人已加入群组！每日签到通知已开启。")
-            except:
-                pass
+            await context.bot.send_message(chat_id, "✅ 机器人已加入群组！每日签到通知已开启。")
 
-# ================== 每日签到通知 ==================
 async def daily_checkin_notice(context: ContextTypes.DEFAULT_TYPE):
     keyboard = InlineKeyboardMarkup([[InlineKeyboardButton("📅 立即签到", callback_data="daily_checkin")]])
     for gid in list(group_ids):
@@ -142,7 +144,7 @@ async def daily_checkin_notice(context: ContextTypes.DEFAULT_TYPE):
 # ================== 完整按钮处理器 ==================
 async def button_handler(update: Update, context: ContextTypes.DEFAULT_TYPE):
     query = update.callback_query
-    user = get_user_data(update.effective_user.id)
+    user = get_user_data(update.effective_user.id, update.effective_user)
     data = query.data
     await query.answer("✅ 操作成功！")
 
@@ -233,8 +235,9 @@ async def button_handler(update: Update, context: ContextTypes.DEFAULT_TYPE):
     if data not in ["pk_menu", "pk_random", "pk_target", "daily_checkin"]:
         await send_panel(update, edit=True)
 
-# ================== 命令处理器 ==================
+# ================== 命令 ==================
 async def start(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    get_user_data(update.effective_user.id, update.effective_user)
     await update.message.reply_text("🎉 欢迎来到飞鸟牧场！初始金币 **1000**")
     await send_panel(update)
 
@@ -248,11 +251,12 @@ async def rank(update: Update, context: ContextTypes.DEFAULT_TYPE):
     sorted_users = sorted(user_data.items(), key=lambda x: x[1]['gold'], reverse=True)[:10]
     text = "🏆 **飞鸟牧场全球排行榜** 🏆\n\n"
     for i, (uid, d) in enumerate(sorted_users, 1):
-        text += f"{i}. 用户{uid[-4:]} — 💰 {d['gold']} 金币（{d.get('level',1)}级）\n"
+        nickname = d.get("nickname", f"用户{uid[-4:]}")
+        text += f"{i}. **{nickname}** — 💰 {d['gold']} 金币（{d.get('level',1)}级）\n"
     await update.message.reply_text(text, parse_mode='Markdown')
 
 async def checkin_cmd(update: Update, context: ContextTypes.DEFAULT_TYPE):
-    user = get_user_data(update.effective_user.id)
+    user = get_user_data(update.effective_user.id, update.effective_user)
     today = str(date.today())
     if user.get("last_checkin") == today:
         await update.message.reply_text("❌ 你今天已经签到过了")
@@ -266,7 +270,7 @@ async def checkin_cmd(update: Update, context: ContextTypes.DEFAULT_TYPE):
     save_data()
 
 async def pk_command(update: Update, context: ContextTypes.DEFAULT_TYPE):
-    user = get_user_data(update.effective_user.id)
+    user = get_user_data(update.effective_user.id, update.effective_user)
     power1 = calculate_combat(user)
     power2 = random.randint(max(30, power1 - 120), power1 + 200)
     if power1 > power2:
@@ -282,7 +286,6 @@ def main():
     load_data()
     app = Application.builder().token(TOKEN).build()
 
-    # 每日签到任务
     try:
         app.job_queue.run_daily(daily_checkin_notice, time=time(0, 0, 0))
     except:
@@ -297,7 +300,7 @@ def main():
     app.add_handler(CommandHandler("pk", pk_command))
     app.add_handler(CallbackQueryHandler(button_handler))
 
-    logger.info("🚀 完整版机器人启动成功！")
+    logger.info("🚀 机器人启动成功！排行榜已优先显示真实昵称")
     app.run_polling(drop_pending_updates=True)
 
 if __name__ == '__main__':
