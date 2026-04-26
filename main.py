@@ -2,7 +2,7 @@ import logging
 import os
 from telegram import Update, InlineKeyboardButton, InlineKeyboardMarkup, BotCommand
 from telegram.ext import Application, CommandHandler, CallbackQueryHandler, ContextTypes
-from telegram.error import TelegramError
+from telegram.error import TelegramError, BadRequest
 
 # ================== 配置 ==================
 TOKEN = os.getenv("TELEGRAM_BOT_TOKEN")
@@ -11,31 +11,25 @@ if not TOKEN:
 
 logging.basicConfig(
     format='%(asctime)s - %(name)s - %(levelname)s - %(message)s',
-    level=logging.INFO
+    level=logging.DEBUG  # 改成 DEBUG 方便看详细错误
 )
 
 # ================== 键盘 ==================
 def build_keyboard():
     keyboard = [
-        [
-            InlineKeyboardButton("🐦 捡蛋", callback_data="pick_egg"),
-            InlineKeyboardButton("⚡ 赶产", callback_data="rush_produce")
-        ],
-        [
-            InlineKeyboardButton("🧹 清扫鸟粪", callback_data="clean_dung"),
-            InlineKeyboardButton("💰 出售全部", callback_data="sell_all")
-        ],
-        [
-            InlineKeyboardButton("🛒 购买虎皮鹦鹉", callback_data="buy_bird")
-        ],
+        [InlineKeyboardButton("🐦 捡蛋", callback_data="pick_egg"),
+         InlineKeyboardButton("⚡ 赶产", callback_data="rush_produce")],
+        [InlineKeyboardButton("🧹 清扫鸟粪", callback_data="clean_dung"),
+         InlineKeyboardButton("💰 出售全部", callback_data="sell_all")],
+        [InlineKeyboardButton("🛒 购买虎皮鹦鹉", callback_data="buy_bird")],
     ]
     return InlineKeyboardMarkup(keyboard)
 
 
-# ================== 主面板 ==================
+# ================== 安全发送面板（关键修复） ==================
 async def send_panel(update: Update, context: ContextTypes.DEFAULT_TYPE, edit: bool = False):
     text = (
-        "🐦 **飞鸟牧场**（4级）\n"
+        "🐦 *飞鸟牧场*（4级）\n"
         "💰 金币：9600  |  🌾 鸟粮：72\n"
         "🏠 鸟窝：4/4\n\n"
         "点击下方按钮进行操作～"
@@ -45,31 +39,32 @@ async def send_panel(update: Update, context: ContextTypes.DEFAULT_TYPE, edit: b
     try:
         if edit and update.callback_query:
             await update.callback_query.edit_message_text(
-                text, 
-                reply_markup=markup, 
-                parse_mode='MarkdownV2'
+                text, reply_markup=markup, parse_mode='Markdown'
             )
         else:
-            # 普通消息或兜底
-            message = update.effective_message or (update.callback_query.message if update.callback_query else None)
+            message = update.effective_message
             if message:
                 await message.reply_text(
-                    text, 
-                    reply_markup=markup, 
-                    parse_mode='MarkdownV2'
+                    text, reply_markup=markup, parse_mode='Markdown'
                 )
-    except TelegramError as e:
-        logging.error(f"发送面板失败: {e}")
+    except BadRequest as e:
+        logging.warning(f"Markdown 错误: {e}. 尝试使用纯文本...")
+        # 降级为纯文本
+        safe_text = text.replace('*', '')
+        if edit and update.callback_query:
+            await update.callback_query.edit_message_text(safe_text, reply_markup=markup)
+        elif update.effective_message:
+            await update.effective_message.reply_text(safe_text, reply_markup=markup)
     except Exception as e:
-        logging.error(f"send_panel 未知错误: {e}")
+        logging.error(f"send_panel 错误: {e}")
 
 
-# ================== 按钮处理器（核心修复） ==================
+# ================== 按钮处理器 ==================
 async def button_handler(update: Update, context: ContextTypes.DEFAULT_TYPE):
     query = update.callback_query
     data = query.data
 
-    await query.answer("✅ 操作成功！", show_alert=False)
+    await query.answer("✅ 操作成功！")
 
     try:
         if data == "pick_egg":
@@ -77,25 +72,24 @@ async def button_handler(update: Update, context: ContextTypes.DEFAULT_TYPE):
         elif data == "rush_produce":
             await query.message.reply_text("✅ 赶产成功！鸟蛋产量提升")
         elif data == "clean_dung":
-            await query.message.reply_text("✅ 清扫鸟粪成功！鸟窝清洁度 +1")
+            await query.message.reply_text("✅ 清扫鸟粪成功！")
         elif data == "sell_all":
-            await query.message.reply_text("✅ 所有鸟蛋已出售！金币 +450")
+            await query.message.reply_text("✅ 所有物品已出售！")
         elif data == "buy_bird":
-            await query.message.reply_text("✅ 购买虎皮鹦鹉成功！鸟窝 -1")
+            await query.message.reply_text("✅ 购买虎皮鹦鹉成功！")
         else:
             await query.message.reply_text("未知操作")
 
-        # 操作完成后刷新面板
         await send_panel(update, context, edit=True)
 
     except Exception as e:
-        logging.error(f"按钮 {data} 处理出错: {e}")
+        logging.error(f"按钮 {data} 处理异常: {e}")
         await query.answer("❌ 操作失败，请重试", show_alert=True)
 
 
-# ================== 命令处理器 ==================
+# ================== 命令处理器（简化 + 安全） ==================
 async def start(update: Update, context: ContextTypes.DEFAULT_TYPE):
-    await update.message.reply_text("🎉 欢迎来到 **飞鸟牧场**！\n使用下方按钮或菜单开始经营～")
+    await update.message.reply_text("🎉 欢迎来到飞鸟牧场！")
     await send_panel(update, context)
 
 
@@ -103,43 +97,18 @@ async def open_farm(update: Update, context: ContextTypes.DEFAULT_TYPE):
     await send_panel(update, context)
 
 
-async def pick_egg(update: Update, context: ContextTypes.DEFAULT_TYPE):
-    await update.message.reply_text("✅ 捡蛋成功！金币 +100")
-
-
-async def rush_produce(update: Update, context: ContextTypes.DEFAULT_TYPE):
-    await update.message.reply_text("✅ 赶产成功！")
-
-
-async def clean_dung(update: Update, context: ContextTypes.DEFAULT_TYPE):
-    await update.message.reply_text("✅ 清扫鸟粪成功！")
-
-
-async def sell_all(update: Update, context: ContextTypes.DEFAULT_TYPE):
-    await update.message.reply_text("✅ 出售全部完成！")
-
-
-async def buy_bird(update: Update, context: ContextTypes.DEFAULT_TYPE):
-    await update.message.reply_text("✅ 购买虎皮鹦鹉成功！")
-
-
 async def help_cmd(update: Update, context: ContextTypes.DEFAULT_TYPE):
-    await update.message.reply_text(
-        "📋 可用命令：\n"
-        "/start - 启动牧场\n"
-        "/open - 打开鸟场面板\n"
-        "/pick - 捡蛋\n"
-        "/rush - 赶产\n"
-        "/clean - 清扫鸟粪\n"
-        "/sell - 出售全部\n"
-        "/buy - 购买鸟\n"
-        "/help - 帮助"
-    )
+    await update.message.reply_text("使用 /start 或 /open 打开面板")
 
 
-# ================== 全局错误处理器（防止崩溃） ==================
+# 其他命令保持简单
+async def simple_reply(update: Update, context: ContextTypes.DEFAULT_TYPE, msg: str):
+    await update.message.reply_text(msg)
+
+
+# ================== 全局错误处理器（防止坠毁） ==================
 async def error_handler(update: Update, context: ContextTypes.DEFAULT_TYPE):
-    logging.error(f"❌ 更新处理异常: {context.error}")
+    logging.error(f"❌ 全局异常: {context.error}", exc_info=True)
     try:
         if update and update.effective_message:
             await update.effective_message.reply_text("❌ 机器人遇到错误，请稍后再试～")
@@ -147,43 +116,32 @@ async def error_handler(update: Update, context: ContextTypes.DEFAULT_TYPE):
         pass
 
 
-# ================== 初始化命令菜单 ==================
+# ================== 初始化 ==================
 async def post_init(application: Application):
     commands = [
         BotCommand("start", "启动飞鸟牧场"),
-        BotCommand("open", "打开我的鸟场"),
-        BotCommand("pick", "捡蛋"),
-        BotCommand("rush", "赶产"),
-        BotCommand("clean", "清扫鸟粪"),
-        BotCommand("sell", "出售全部"),
-        BotCommand("buy", "购买虎皮鹦鹉"),
+        BotCommand("open", "打开鸟场"),
         BotCommand("help", "帮助"),
     ]
     await application.bot.set_my_commands(commands)
-    print("✅ 机器人命令菜单已更新")
+    print("✅ 命令菜单已设置")
 
 
-# ================== 主函数 ==================
 def main():
     application = Application.builder().token(TOKEN).post_init(post_init).build()
 
-    # 命令处理器
+    # 命令
     application.add_handler(CommandHandler("start", start))
     application.add_handler(CommandHandler("open", open_farm))
-    application.add_handler(CommandHandler("pick", pick_egg))
-    application.add_handler(CommandHandler("rush", rush_produce))
-    application.add_handler(CommandHandler("clean", clean_dung))
-    application.add_handler(CommandHandler("sell", sell_all))
-    application.add_handler(CommandHandler("buy", buy_bird))
     application.add_handler(CommandHandler("help", help_cmd))
-
-    # 按钮处理器
+    
+    # 按钮
     application.add_handler(CallbackQueryHandler(button_handler))
 
-    # 全局错误处理（关键！防止崩溃）
+    # 全局错误处理（最重要）
     application.add_error_handler(error_handler)
 
-    print("🚀 飞鸟牧场机器人启动中...")
+    print("🚀 飞鸟牧场机器人启动成功...")
     application.run_polling(drop_pending_updates=True)
 
 
