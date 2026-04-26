@@ -60,7 +60,8 @@ def add_exp(user_id: int, amount: int):
     user = get_user_data(user_id)
     user["exp"] += amount
     old_level = user["level"]
-    while user["level"] < 9 and user["exp"] >= [0,100,300,600,1000,1500,2200,3000,4000,999999][user["level"]]:
+    LEVELS = [0, 100, 300, 600, 1000, 1500, 2200, 3000, 4000, 999999]
+    while user["level"] < 9 and user["exp"] >= LEVELS[user["level"]]:
         user["level"] += 1
         user["gold"] += 300
         user["combat"] *= 2
@@ -74,8 +75,8 @@ def calculate_combat(user):
     if user["birds"] == 0:
         return 0
     per = {"stamina":25, "strength":18, "intelligence":20, "agility":15}
-    base = user["combat"] + (per["strength"]*user["birds"])*1.2 + (per["agility"]*user["birds"])*0.8
-    return int(base * (1 + (per["intelligence"]*user["birds"])/200))
+    base = user["combat"] + (per["strength"] * user["birds"]) * 1.2 + (per["agility"] * user["birds"]) * 0.8
+    return int(base * (1 + (per["intelligence"] * user["birds"]) / 200))
 
 # ================== 键盘 ==================
 def build_keyboard():
@@ -97,17 +98,18 @@ async def send_panel(update: Update, edit: bool = False):
     user = get_user_data(update.effective_user.id)
     combat = calculate_combat(user)
     text = f"🐦 **飞鸟牧场**（{user['level']}级）\n💰 金币：{user['gold']} | 🌾 鸟粮：{user['feed']}\n🦜 鹦鹉：{user['birds']}/4 | ⚔️ 战斗力：{combat}\n⭐ 经验：{user['exp']}/{[0,100,300,600,1000,1500,2200,3000,4000,999999][user['level']]}"
+    markup = build_keyboard()
     try:
         if edit and update.callback_query:
-            await update.callback_query.edit_message_text(text, reply_markup=build_keyboard(), parse_mode='Markdown')
+            await update.callback_query.edit_message_text(text, reply_markup=markup, parse_mode='Markdown')
         else:
-            await update.effective_message.reply_text(text, reply_markup=build_keyboard(), parse_mode='Markdown')
+            await update.effective_message.reply_text(text, reply_markup=markup, parse_mode='Markdown')
     except:
         pass
 
 # ================== 自动记录群ID ==================
 async def track_group(update: Update, context: ContextTypes.DEFAULT_TYPE):
-    if update.my_chat_member.new_chat_member.status in ["member", "administrator"]:
+    if update.my_chat_member and update.my_chat_member.new_chat_member.status in ["member", "administrator"]:
         chat_id = update.effective_chat.id
         if chat_id not in group_ids:
             group_ids.add(chat_id)
@@ -164,7 +166,7 @@ async def button_handler(update: Update, context: ContextTypes.DEFAULT_TYPE):
         await query.message.reply_text(f"⚔️ **随机PK**\n你的战力：**{power1}**\n对手战力：**{power2}**\n\n{result}", parse_mode='Markdown')
 
     elif data == "pk_target":
-        await query.message.reply_text("👤 使用命令：`/pk @用户名`")
+        await query.message.reply_text("👤 使用 `/pk @用户名` 发起挑战")
 
     elif data == "back_to_main":
         await send_panel(update, edit=True)
@@ -215,47 +217,32 @@ async def button_handler(update: Update, context: ContextTypes.DEFAULT_TYPE):
         await query.message.reply_text(f"✅ 出售成功！获得 {earnings} 金币")
 
     save_data()
-    if data not in ["pk_menu", "pk_random", "pk_target"]:
+    if data not in ["pk_menu", "pk_random", "pk_target", "daily_checkin"]:
         await send_panel(update, edit=True)
-
-# ================== 其他命令 ==================
-async def start(update: Update, context: ContextTypes.DEFAULT_TYPE):
-    await update.message.reply_text("🎉 欢迎来到飞鸟牧场！初始金币30，快去购买第一只🦜吧～")
-    await send_panel(update)
-
-async def open_farm(update: Update, context: ContextTypes.DEFAULT_TYPE):
-    await send_panel(update)
-
-async def pk_command(update: Update, context: ContextTypes.DEFAULT_TYPE):
-    # 直接随机PK
-    user = get_user_data(update.effective_user.id)
-    power1 = calculate_combat(user)
-    power2 = random.randint(max(30, power1 - 120), power1 + 200)
-    if power1 > power2:
-        result = "🎉 你赢了！+150 金币"
-        user["gold"] += 150
-    else:
-        result = "😔 你输了"
-    await update.message.reply_text(f"⚔️ **随机PK**\n你的战力：**{power1}**\n对手：**{power2}**\n\n{result}", parse_mode='Markdown')
-    save_data()
 
 # ================== 主函数 ==================
 def main():
     load_data()
-    app = Application.builder().token(TOKEN).post_init(lambda app: app.bot.set_my_commands([
-        BotCommand("start", "启动牧场"), BotCommand("open", "打开面板"),
-        BotCommand("pk", "进行PK"), BotCommand("checkin", "签到")
+    app = Application.builder().token(TOKEN).post_init(lambda a: a.bot.set_my_commands([
+        BotCommand("start", "启动牧场"),
+        BotCommand("open", "打开面板"),
+        BotCommand("pk", "进行PK"),
+        BotCommand("checkin", "签到")
     ])).build()
 
-    app.job_queue.run_daily(daily_checkin_notice, time=time(0, 0, 0))
+    # 每日签到任务（北京时间00:00）
+    try:
+        app.job_queue.run_daily(daily_checkin_notice, time=time(0, 0, 0))
+        logger.info("✅ 每日签到任务已设置")
+    except Exception as e:
+        logger.warning(f"JobQueue 设置失败: {e}（可忽略，若不需要自动通知）")
 
     app.add_handler(ChatMemberHandler(track_group, ChatMemberHandler.MY_CHAT_MEMBER))
-    app.add_handler(CommandHandler("start", start))
+
+    app.add_handler(CommandHandler("start", lambda u,c: (start(u,c), None)[0])
     app.add_handler(CommandHandler("open", open_farm))
     app.add_handler(CommandHandler("pk", pk_command))
     app.add_handler(CallbackQueryHandler(button_handler))
-
-    app.add_handler(MessageHandler(filters.TEXT & ~filters.COMMAND & (filters.ChatType.GROUP | filters.ChatType.SUPERGROUP), lambda u,c: None))  # 可后续扩展
 
     logger.info("🚀 完整版机器人启动成功！")
     app.run_polling(drop_pending_updates=True)
