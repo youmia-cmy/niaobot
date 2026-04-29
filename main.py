@@ -35,7 +35,7 @@ if GEMINI_API_KEY and genai:
     try:
         genai.configure(api_key=GEMINI_API_KEY)
         model = genai.GenerativeModel(
-            model_name='gemini-3.1-pro',   # 使用你界面上可用的模型
+            model_name='gemini-3.1-pro-preview',   # ← 你界面上的模型
             safety_settings={
                 HarmCategory.HARM_CATEGORY_HARASSMENT: HarmBlockThreshold.BLOCK_NONE,
                 HarmCategory.HARM_CATEGORY_HATE_SPEECH: HarmBlockThreshold.BLOCK_NONE,
@@ -47,7 +47,7 @@ if GEMINI_API_KEY and genai:
                 max_output_tokens=1000,
             )
         )
-        logger.info("✅ Gemini 3.1 Pro 模型加载成功")
+        logger.info("✅ Gemini 3.1 Pro Preview 模型加载成功")
     except Exception as e:
         logger.error(f"❌ Gemini 初始化失败: {e}")
         model = None
@@ -157,7 +157,6 @@ async def send_panel(update: Update, edit: bool = False):
     except Exception as e:
         logger.error(f"面板错误: {e}")
 
-# ====================== 辅助功能 ======================
 async def track_group(update: Update, context: ContextTypes.DEFAULT_TYPE):
     if update.my_chat_member and update.my_chat_member.new_chat_member.status in ["member", "administrator"]:
         chat_id = update.effective_chat.id
@@ -213,7 +212,6 @@ async def ai_button(update: Update, context: ContextTypes.DEFAULT_TYPE):
         parse_mode='Markdown'
     )
 
-# ====================== 群聊经验 ======================
 async def group_chat_exp(update: Update, context: ContextTypes.DEFAULT_TYPE):
     if update.effective_chat.type == "private":
         return
@@ -226,7 +224,6 @@ async def group_chat_exp(update: Update, context: ContextTypes.DEFAULT_TYPE):
         await update.message.reply_text(f"🎉 聊天获得经验！升级到 {user['level']} 级！", quote=True)
     save_data()
 
-# ====================== 按钮处理器 ======================
 async def button_handler(update: Update, context: ContextTypes.DEFAULT_TYPE):
     query = update.callback_query
     user = get_user_data(update.effective_user.id, update.effective_user)
