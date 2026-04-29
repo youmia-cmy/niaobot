@@ -3,10 +3,10 @@ import os
 import json
 import random
 from datetime import date, time
-from telegram import Update, InlineKeyboardButton, InlineKeyboardMarkup, BotCommand
+from telegram import Update, InlineKeyboardButton, InlineKeyboardMarkup
 from telegram.ext import (
     Application, CommandHandler, CallbackQueryHandler, 
-    ContextTypes, JobQueue, ChatMemberHandler
+    ContextTypes, ChatMemberHandler
 )
 
 TOKEN = os.getenv("TELEGRAM_BOT_TOKEN")
@@ -48,10 +48,20 @@ def get_user_data(user_id: int, effective_user=None):
     today = str(date.today())
     if uid not in user_data:
         user_data[uid] = {
-            "gold": 1000, "feed": 50, "birds": 0, "nests": 4,
-            "level": 1, "exp": 0, "last_active": 0,
-            "combat": 100, "stamina": 0, "strength": 0, "intelligence": 0, "agility": 0,
-            "feed_count_today": 0, "last_feed_date": today, "last_checkin": "",
+            "feed": 50, 
+            "birds": 1,          # 固定只有1只，不可购买
+            "nests": 4,
+            "level": 1, 
+            "exp": 0, 
+            "last_active": 0,
+            "combat": 100, 
+            "stamina": 0, 
+            "strength": 0, 
+            "intelligence": 0, 
+            "agility": 0,
+            "feed_count_today": 0, 
+            "last_feed_date": today, 
+            "last_checkin": "",
             "nickname": ""
         }
     if effective_user:
@@ -66,7 +76,6 @@ def add_exp(user_id: int, amount: int):
     LEVELS = [0, 100, 300, 600, 1000, 1500, 2200, 3000, 4000, 999999]
     while user["level"] < 9 and user["exp"] >= LEVELS[user["level"]]:
         user["level"] += 1
-        user["gold"] += 300
         user["combat"] *= 2
         user["stamina"] += 25
         user["strength"] += 15
@@ -86,7 +95,6 @@ def build_keyboard():
     return InlineKeyboardMarkup([
         [InlineKeyboardButton("🥚 捡蛋", callback_data="pick_egg"), InlineKeyboardButton("⚡ 赶产", callback_data="rush_produce")],
         [InlineKeyboardButton("🌾 喂养", callback_data="feed_birds"), InlineKeyboardButton("🧹 清扫", callback_data="clean_dung")],
-        [InlineKeyboardButton("💰 出售全部", callback_data="sell_all"), InlineKeyboardButton("🛒 购买🦜", callback_data="buy_bird")],
         [InlineKeyboardButton("⚔️ PK", callback_data="pk_menu"), InlineKeyboardButton("🦜 官网", callback_data="official_web")],
     ])
 
@@ -102,9 +110,9 @@ async def send_panel(update: Update, edit: bool = False):
     combat = calculate_combat(user)
     text = (
         f"🦜 **飞鸟牧场**（{user['level']}级）\n"
-        f"💰 金币：{user['gold']}  |  🌾 鸟粮：{user['feed']}\n"
-        f"🦜 鹦鹉：{user['birds']}/4  |  ⚔️ 战斗力：{combat}\n"
-        f"⭐ 经验：{user['exp']}/1000+"
+        f"🌾 鸟粮：{user['feed']}\n"
+        f"🦜 鹦鹉：{user['birds']} 只  |  ⚔️ 战斗力：{combat}\n"
+        f"⭐ 经验：{user['exp']}"
     )
     markup = build_keyboard()
     try:
@@ -137,14 +145,14 @@ async def daily_checkin_notice(context: ContextTypes.DEFAULT_TYPE):
         try:
             await context.bot.send_message(
                 chat_id=gid,
-                text="🌅 **新的一天开始了！**\n\n签到可获得 **10 金币 + 30 经验**\n每天仅限1次～",
+                text="🌅 **新的一天开始了！**\n\n签到可获得 **50 经验**\n每天仅限1次～",
                 reply_markup=keyboard,
                 parse_mode='Markdown'
             )
         except:
             pass
 
-# ================== 完整按钮处理器 ==================
+# ================== 按钮处理器 ==================
 async def button_handler(update: Update, context: ContextTypes.DEFAULT_TYPE):
     query = update.callback_query
     user = get_user_data(update.effective_user.id, update.effective_user)
@@ -161,10 +169,9 @@ async def button_handler(update: Update, context: ContextTypes.DEFAULT_TYPE):
         if user.get("last_checkin") == today:
             reply = await query.message.reply_text("❌ 你今天已经签到过了")
         else:
-            user["gold"] += 10
             user["last_checkin"] = today
-            leveled = add_exp(update.effective_user.id, 30)
-            reply = await query.message.reply_text("✅ 签到成功！\n+10 金币\n+30 经验")
+            leveled = add_exp(update.effective_user.id, 50)
+            reply = await query.message.reply_text("✅ 签到成功！\n+50 经验")
             if leveled:
                 await query.message.reply_text("🎉 升级了！")
         save_data()
@@ -177,8 +184,8 @@ async def button_handler(update: Update, context: ContextTypes.DEFAULT_TYPE):
         power1 = calculate_combat(user)
         power2 = random.randint(max(30, power1 - 120), power1 + 200)
         if power1 > power2:
-            result = "🎉 你赢了！+150 金币"
-            user["gold"] += 150
+            result = "🎉 你赢了！+80 经验"
+            add_exp(update.effective_user.id, 80)
         else:
             result = "😔 你输了"
         reply = await query.message.reply_text(f"⚔️ **随机PK**\n你的战力：**{power1}**\n对手战力：**{power2}**\n\n{result}", parse_mode='Markdown')
@@ -206,34 +213,25 @@ async def button_handler(update: Update, context: ContextTypes.DEFAULT_TYPE):
             reply = await query.message.reply_text("❌ 鸟粮不足")
 
     elif data == "buy_bird":
-        if user['birds'] >= 4:
-            reply = await query.message.reply_text("❌ 最多只能拥有4只🦜")
-        elif user['gold'] >= 800:
-            user['gold'] -= 800
-            user['birds'] += 1
-            reply = await query.message.reply_text(f"✅ 购买成功！当前拥有 {user['birds']} 只🦜")
-        else:
-            reply = await query.message.reply_text("❌ 金币不足（需要800）")
+        reply = await query.message.reply_text("❌ 宠物数量已固定为1只，不可购买")
 
     elif data == "pick_egg":
         reward = 60 + user['birds'] * 30 + user['level'] * 10
-        user['gold'] += reward
-        reply = await query.message.reply_text(f"✅ 捡蛋成功！获得 {reward} 金币")
+        leveled = add_exp(update.effective_user.id, reward)
+        reply = await query.message.reply_text(f"✅ 捡蛋成功！获得 {reward} 经验")
+        if leveled:
+            await query.message.reply_text("🎉 升级了！")
 
     elif data == "rush_produce":
         user['feed'] = min(user['feed'] + 20, 300)
         reply = await query.message.reply_text("✅ 赶产成功！")
 
     elif data == "clean_dung":
-        add_exp(update.effective_user.id, 30)
+        leveled = add_exp(update.effective_user.id, 30)
         reply = await query.message.reply_text("✅ 清扫成功！+30经验")
+        if leveled:
+            await query.message.reply_text("🎉 升级了！")
 
-    elif data == "sell_all":
-        earnings = user['birds'] * (100 + user['level'] * 25)
-        user['gold'] += earnings
-        reply = await query.message.reply_text(f"✅ 出售成功！获得 {earnings} 金币")
-
-    # 2秒后自动删除提示消息
     if reply:
         context.job_queue.run_once(delete_later, 2, data={'chat_id': reply.chat_id, 'message_id': reply.message_id})
 
@@ -244,7 +242,7 @@ async def button_handler(update: Update, context: ContextTypes.DEFAULT_TYPE):
 # ================== 命令 ==================
 async def start(update: Update, context: ContextTypes.DEFAULT_TYPE):
     get_user_data(update.effective_user.id, update.effective_user)
-    await update.message.reply_text("🎉 欢迎来到飞鸟牧场！初始金币 **1000**")
+    await update.message.reply_text("🎉 欢迎来到飞鸟牧场！\n你已拥有1只专属🦜")
     await send_panel(update)
 
 async def open_farm(update: Update, context: ContextTypes.DEFAULT_TYPE):
@@ -254,11 +252,17 @@ async def rank(update: Update, context: ContextTypes.DEFAULT_TYPE):
     if not user_data:
         await update.message.reply_text("🏆 目前还没有玩家上榜")
         return
-    sorted_users = sorted(user_data.items(), key=lambda x: x[1]['gold'], reverse=True)[:10]
-    text = "🏆 **飞鸟牧场全球排行榜** 🏆\n\n"
+    sorted_users = sorted(
+        user_data.items(), 
+        key=lambda x: calculate_combat(x[1]), 
+        reverse=True
+    )[:10]
+    
+    text = "🏆 **飞鸟牧场战斗力排行榜** 🏆\n\n"
     for i, (uid, d) in enumerate(sorted_users, 1):
         nickname = d.get("nickname", f"用户{uid[-4:]}")
-        text += f"{i}. **{nickname}** — 💰 {d['gold']} 金币（{d.get('level',1)}级）\n"
+        combat = calculate_combat(d)
+        text += f"{i}. **{nickname}** — ⚔️ {combat} 战斗力（{d.get('level',1)}级）\n"
     await update.message.reply_text(text, parse_mode='Markdown')
 
 async def checkin_cmd(update: Update, context: ContextTypes.DEFAULT_TYPE):
@@ -267,10 +271,9 @@ async def checkin_cmd(update: Update, context: ContextTypes.DEFAULT_TYPE):
     if user.get("last_checkin") == today:
         await update.message.reply_text("❌ 你今天已经签到过了")
         return
-    user["gold"] += 10
     user["last_checkin"] = today
-    leveled = add_exp(update.effective_user.id, 30)
-    await update.message.reply_text("✅ 签到成功！\n+10 金币\n+30 经验")
+    leveled = add_exp(update.effective_user.id, 50)
+    await update.message.reply_text("✅ 签到成功！\n+50 经验")
     if leveled:
         await update.message.reply_text("🎉 升级了！")
     save_data()
@@ -280,8 +283,8 @@ async def pk_command(update: Update, context: ContextTypes.DEFAULT_TYPE):
     power1 = calculate_combat(user)
     power2 = random.randint(max(30, power1 - 120), power1 + 200)
     if power1 > power2:
-        result = "🎉 你赢了！+150 金币"
-        user["gold"] += 150
+        result = "🎉 你赢了！+80 经验"
+        add_exp(update.effective_user.id, 80)
     else:
         result = "😔 你输了"
     await update.message.reply_text(f"⚔️ **随机PK**\n你的战力：**{power1}**\n对手战力：**{power2}**\n\n{result}", parse_mode='Markdown')
@@ -306,7 +309,7 @@ def main():
     app.add_handler(CommandHandler("pk", pk_command))
     app.add_handler(CallbackQueryHandler(button_handler))
 
-    logger.info("🚀 完整版机器人启动成功！")
+    logger.info("🚀 飞鸟牧场（固定1只宠物版）机器人启动成功！")
     app.run_polling(drop_pending_updates=True)
 
 if __name__ == '__main__':
