@@ -28,7 +28,7 @@ except ImportError:
     logger.error("❌ google-generativeai 未安装")
 
 def get_gemini_key():
-    # 新 Key 已 base64 编码（不会明文显示）
+    # 最新 Key (base64 编码)
     encoded = "QUl6YVN5QUUwZlJ1cnF2bDRsZ2ZTVEUzSkRYbzZIOHlBajVRZE1J"
     return base64.b64decode(encoded).decode('utf-8')
 
@@ -51,7 +51,7 @@ if GEMINI_API_KEY and genai:
                 max_output_tokens=800,
             )
         )
-        logger.info("✅ Gemini 模型加载成功（新 Key）")
+        logger.info("✅ Gemini 模型加载成功（最新 Key）")
     except Exception as e:
         logger.error(f"❌ Gemini 初始化失败: {e}")
         model = None
@@ -212,7 +212,7 @@ async def ai_response(update: Update, context: ContextTypes.DEFAULT_TYPE):
         logger.info("[NIAO] 回复成功")
     except Exception as e:
         logger.error(f"[NIAO] API 调用失败: {e}")
-        await update.message.reply_text("❌ NIAO 连接失败～ 请稍后再试！")
+        await update.message.reply_text("❌ NIAO 连接 AI 失败～ 请稍后再试！")
 
 async def ai_button(update: Update, context: ContextTypes.DEFAULT_TYPE):
     await update.callback_query.answer()
