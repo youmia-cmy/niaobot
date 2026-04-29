@@ -36,7 +36,7 @@ if GEMINI_API_KEY and genai:
     try:
         genai.configure(api_key=GEMINI_API_KEY)
         model = genai.GenerativeModel(
-            model_name='gemini-1.5-flash',   # 推荐使用稳定模型
+            model_name='gemini-1.5-flash',
             safety_settings={
                 HarmCategory.HARM_CATEGORY_HARASSMENT: HarmBlockThreshold.BLOCK_NONE,
                 HarmCategory.HARM_CATEGORY_HATE_SPEECH: HarmBlockThreshold.BLOCK_NONE,
@@ -48,7 +48,7 @@ if GEMINI_API_KEY and genai:
                 max_output_tokens=800,
             )
         )
-        logger.info("✅ Gemini 模型加载成功（最新 Key）")
+        logger.info("✅ Gemini 模型加载成功")
     except Exception as e:
         logger.error(f"❌ Gemini 初始化失败: {e}")
         model = None
@@ -158,7 +158,6 @@ async def send_panel(update: Update, edit: bool = False):
     except Exception as e:
         logger.error(f"面板错误: {e}")
 
-# ====================== 辅助功能 ======================
 async def track_group(update: Update, context: ContextTypes.DEFAULT_TYPE):
     if update.my_chat_member and update.my_chat_member.new_chat_member.status in ["member", "administrator"]:
         chat_id = update.effective_chat.id
@@ -181,7 +180,6 @@ async def delete_later(context: ContextTypes.DEFAULT_TYPE):
     except:
         pass
 
-# ====================== NIAO AI ======================
 async def ai_response(update: Update, context: ContextTypes.DEFAULT_TYPE):
     if not model:
         await update.message.reply_text("❌ NIAO 未启用")
@@ -214,7 +212,6 @@ async def ai_button(update: Update, context: ContextTypes.DEFAULT_TYPE):
         parse_mode='Markdown'
     )
 
-# ====================== 群聊经验 ======================
 async def group_chat_exp(update: Update, context: ContextTypes.DEFAULT_TYPE):
     if update.effective_chat.type == "private":
         return
@@ -227,7 +224,6 @@ async def group_chat_exp(update: Update, context: ContextTypes.DEFAULT_TYPE):
         await update.message.reply_text(f"🎉 聊天获得经验！升级到 {user['level']} 级！", quote=True)
     save_data()
 
-# ====================== 按钮处理器 ======================
 async def button_handler(update: Update, context: ContextTypes.DEFAULT_TYPE):
     query = update.callback_query
     user = get_user_data(update.effective_user.id, update.effective_user)
@@ -311,7 +307,6 @@ async def button_handler(update: Update, context: ContextTypes.DEFAULT_TYPE):
     if data not in ["pk_menu", "pk_random", "pk_target", "daily_checkin", "ai_chat"]:
         await send_panel(update, edit=True)
 
-# ====================== 命令 ======================
 async def start(update: Update, context: ContextTypes.DEFAULT_TYPE):
     get_user_data(update.effective_user.id, update.effective_user)
     await update.message.reply_text("🎉 欢迎来到飞鸟牧场！\n我是 **NIAO**～")
@@ -355,7 +350,6 @@ async def pk_command(update: Update, context: ContextTypes.DEFAULT_TYPE):
     await update.message.reply_text(f"⚔️ **随机PK**\n你的战力：**{power1}**\n对手战力：**{power2}**\n\n{result}", parse_mode='Markdown')
     save_data()
 
-# ====================== 主函数 ======================
 def main():
     load_data()
     app = Application.builder().token(TOKEN).build()
