@@ -28,7 +28,7 @@ GEMINI_API_KEY = os.getenv("GEMINI_API_KEY") or get_gemini_key()
 
 if GEMINI_API_KEY and genai:
     genai.configure(api_key=GEMINI_API_KEY)
-    model = genai.GenerativeModel('gemini-3-flash-preview')   # ← 已修改为新模型
+    model = genai.GenerativeModel('gemini-3-flash-preview')
 else:
     model = None
     logging.warning("⚠️ Gemini AI 未启用")
@@ -157,6 +157,28 @@ async def send_panel(update: Update, edit: bool = False):
     except Exception as e:
         logger.error(f"面板错误: {e}")
 
+# ================== 群组跟踪 & 每日签到 ==================
+async def track_group(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    if update.my_chat_member and update.my_chat_member.new_chat_member.status in ["member", "administrator"]:
+        chat_id = update.effective_chat.id
+        if chat_id not in group_ids:
+            group_ids.add(chat_id)
+            save_data()
+            await context.bot.send_message(chat_id, "✅ 机器人已加入群组！每日签到通知已开启。")
+
+async def daily_checkin_notice(context: ContextTypes.DEFAULT_TYPE):
+    keyboard = InlineKeyboardMarkup([[InlineKeyboardButton("📅 立即签到", callback_data="daily_checkin")]])
+    for gid in list(group_ids):
+        try:
+            await context.bot.send_message(
+                chat_id=gid,
+                text="🌅 **新的一天开始了！**\n\n签到可获得 **50 经验**\n每天仅限1次～",
+                reply_markup=keyboard,
+                parse_mode='Markdown'
+            )
+        except:
+            pass
+
 # ================== 群聊经验 ==================
 async def group_chat_exp(update: Update, context: ContextTypes.DEFAULT_TYPE):
     if update.effective_chat.type == "private":
@@ -197,7 +219,7 @@ async def ai_response(update: Update, context: ContextTypes.DEFAULT_TYPE):
 async def ai_button(update: Update, context: ContextTypes.DEFAULT_TYPE):
     await update.callback_query.answer()
     await update.callback_query.edit_message_text(
-        "💬 **我是NIAO 聊天已开启**\n\n直接发消息给我即可～\n输入 /back 返回牧场",
+        "💬 **NIAO 聊天已开启**\n\n直接发消息🦜我就行～\n输入 /back 返回牧场",
         parse_mode='Markdown'
     )
 
@@ -296,7 +318,7 @@ async def delete_later(context: ContextTypes.DEFAULT_TYPE):
 # ================== 命令 ==================
 async def start(update: Update, context: ContextTypes.DEFAULT_TYPE):
     get_user_data(update.effective_user.id, update.effective_user)
-    await update.message.reply_text("🎉 欢迎来到飞鸟牧场！\n我是 **NIAO**，只支持纯文字聊天～")
+    await update.message.reply_text("🎉 欢迎来到飞鸟牧场！\n我是 **NIAO**，支持聊天喔～")
     await send_panel(update)
 
 async def back_to_farm(update: Update, context: ContextTypes.DEFAULT_TYPE):
