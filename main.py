@@ -49,7 +49,7 @@ def get_user_data(user_id: int, effective_user=None):
     if uid not in user_data:
         user_data[uid] = {
             "feed": 50, 
-            "birds": 1,          # 固定只有1只，不可购买
+            "birds": 1,          
             "nests": 4,
             "level": 1, 
             "exp": 0, 
@@ -73,14 +73,21 @@ def add_exp(user_id: int, amount: int):
     user = get_user_data(user_id)
     user["exp"] += amount
     old_level = user["level"]
-    LEVELS = [0, 100, 300, 600, 1000, 1500, 2200, 3000, 4000, 999999]
-    while user["level"] < 9 and user["exp"] >= LEVELS[user["level"]]:
+    
+    # 99级经验曲线（逐渐递增）
+    LEVELS = [0]
+    for i in range(1, 100):
+        exp_needed = int(100 * (i ** 1.6))   # 平滑增长曲线
+        LEVELS.append(exp_needed)
+    
+    while user["level"] < 99 and user["exp"] >= LEVELS[user["level"]]:
         user["level"] += 1
-        user["combat"] *= 2
+        user["combat"] *= 2                    # 每升一级战斗力翻倍
         user["stamina"] += 25
         user["strength"] += 15
         user["intelligence"] += 15
         user["agility"] += 15
+    
     return user["level"] > old_level
 
 def calculate_combat(user):
@@ -173,7 +180,7 @@ async def button_handler(update: Update, context: ContextTypes.DEFAULT_TYPE):
             leveled = add_exp(update.effective_user.id, 50)
             reply = await query.message.reply_text("✅ 签到成功！\n+50 经验")
             if leveled:
-                await query.message.reply_text("🎉 升级了！")
+                await query.message.reply_text(f"🎉 升级了！当前 {user['level']} 级")
         save_data()
 
     elif data == "pk_menu":
@@ -208,19 +215,16 @@ async def button_handler(update: Update, context: ContextTypes.DEFAULT_TYPE):
             leveled = add_exp(update.effective_user.id, exp_gain)
             reply = await query.message.reply_text(f"🌾 喂养成功！+{exp_gain}经验（今日{user['feed_count_today']}/5）")
             if leveled:
-                await query.message.reply_text("🎉 升级！战斗力翻倍！")
+                await query.message.reply_text(f"🎉 升级！当前 {user['level']} 级")
         else:
             reply = await query.message.reply_text("❌ 鸟粮不足")
-
-    elif data == "buy_bird":
-        reply = await query.message.reply_text("❌ 宠物数量已固定为1只，不可购买")
 
     elif data == "pick_egg":
         reward = 60 + user['birds'] * 30 + user['level'] * 10
         leveled = add_exp(update.effective_user.id, reward)
         reply = await query.message.reply_text(f"✅ 捡蛋成功！获得 {reward} 经验")
         if leveled:
-            await query.message.reply_text("🎉 升级了！")
+            await query.message.reply_text(f"🎉 升级了！当前 {user['level']} 级")
 
     elif data == "rush_produce":
         user['feed'] = min(user['feed'] + 20, 300)
@@ -230,7 +234,7 @@ async def button_handler(update: Update, context: ContextTypes.DEFAULT_TYPE):
         leveled = add_exp(update.effective_user.id, 30)
         reply = await query.message.reply_text("✅ 清扫成功！+30经验")
         if leveled:
-            await query.message.reply_text("🎉 升级了！")
+            await query.message.reply_text(f"🎉 升级了！当前 {user['level']} 级")
 
     if reply:
         context.job_queue.run_once(delete_later, 2, data={'chat_id': reply.chat_id, 'message_id': reply.message_id})
@@ -242,7 +246,7 @@ async def button_handler(update: Update, context: ContextTypes.DEFAULT_TYPE):
 # ================== 命令 ==================
 async def start(update: Update, context: ContextTypes.DEFAULT_TYPE):
     get_user_data(update.effective_user.id, update.effective_user)
-    await update.message.reply_text("🎉 欢迎来到飞鸟牧场！\n你已拥有1只专属🦜")
+    await update.message.reply_text("🎉 欢迎来到飞鸟牧场！\n你已拥有1只专属🦜\n最高可升至 **99级**")
     await send_panel(update)
 
 async def open_farm(update: Update, context: ContextTypes.DEFAULT_TYPE):
@@ -275,7 +279,7 @@ async def checkin_cmd(update: Update, context: ContextTypes.DEFAULT_TYPE):
     leveled = add_exp(update.effective_user.id, 50)
     await update.message.reply_text("✅ 签到成功！\n+50 经验")
     if leveled:
-        await update.message.reply_text("🎉 升级了！")
+        await update.message.reply_text(f"🎉 升级了！当前 {user['level']} 级")
     save_data()
 
 async def pk_command(update: Update, context: ContextTypes.DEFAULT_TYPE):
@@ -309,7 +313,7 @@ def main():
     app.add_handler(CommandHandler("pk", pk_command))
     app.add_handler(CallbackQueryHandler(button_handler))
 
-    logger.info("🚀 飞鸟牧场（固定1只宠物版）机器人启动成功！")
+    logger.info("🚀 飞鸟牧场（99级版）机器人启动成功！")
     app.run_polling(drop_pending_updates=True)
 
 if __name__ == '__main__':
