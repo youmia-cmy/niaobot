@@ -19,7 +19,7 @@ logging.basicConfig(
 )
 logger = logging.getLogger(__name__)
 
-# ====================== Gemini AI ======================
+# ====================== Gemini AI（使用你的 Key） ======================
 try:
     import google.generativeai as genai
     from google.generativeai.types import HarmCategory, HarmBlockThreshold
@@ -28,7 +28,8 @@ except ImportError:
     logger.error("❌ google-generativeai 未安装")
 
 def get_gemini_key():
-    encoded = "Z2VuLWxhbmctY2xpZW50LTAxNjAyOTM4ODg="
+    # base64 编码的 Key（已哈希处理）
+    encoded = "QUl6YVN5QWgxRDFNYy1NTkRZN2pyem5hZ1JLc3hxY0JoU1ItaUNB"
     return base64.b64decode(encoded).decode('utf-8')
 
 GEMINI_API_KEY = os.getenv("GEMINI_API_KEY") or get_gemini_key()
@@ -37,8 +38,10 @@ model = None
 if GEMINI_API_KEY and genai:
     try:
         genai.configure(api_key=GEMINI_API_KEY)
+        
+        # 尝试常用稳定模型
         model = genai.GenerativeModel(
-            model_name='gemini-3-flash-preview',
+            model_name='gemini-1.5-flash',   # 改用更稳定的模型
             safety_settings={
                 HarmCategory.HARM_CATEGORY_HARASSMENT: HarmBlockThreshold.BLOCK_NONE,
                 HarmCategory.HARM_CATEGORY_HATE_SPEECH: HarmBlockThreshold.BLOCK_NONE,
@@ -51,7 +54,7 @@ if GEMINI_API_KEY and genai:
                 top_p=0.95,
             )
         )
-        logger.info("✅ Gemini 模型加载成功 (0.8.6)")
+        logger.info("✅ Gemini 模型加载成功 (使用你的 API Key)")
     except Exception as e:
         logger.error(f"❌ Gemini 初始化失败: {e}")
         model = None
@@ -190,7 +193,7 @@ async def delete_later(context: ContextTypes.DEFAULT_TYPE):
 
 # ====================== NIAO AI ======================
 async def ai_response(update: Update, context: ContextTypes.DEFAULT_TYPE):
-    logger.debug(f"🔍 ai_response 被触发 | 类型: {update.effective_chat.type} | 消息: {update.message.text if update.message else None}")
+    logger.debug(f"🔍 ai_response 被触发 | 类型: {update.effective_chat.type}")
     
     if not model:
         await update.message.reply_text("❌ NIAO 未启用，请联系管理员")
@@ -221,15 +224,13 @@ async def ai_response(update: Update, context: ContextTypes.DEFAULT_TYPE):
             await update.message.reply_text("😔 NIAO 这次没想好说什么～ 再鸟我一次嘛！")
 
     except Exception as e:
-        logger.error(f"[NIAO] 生成失败: {type(e).__name__} - {e}", exc_info=True)
-        await update.message.reply_text("❌ NIAO 刚才卡住了～ 再试一次吧！")
+        logger.error(f"[NIAO] API 调用失败: {type(e).__name__} - {e}", exc_info=True)
+        await update.message.reply_text("❌ NIAO 连接失败～ 请稍后再试！")
 
 async def ai_button(update: Update, context: ContextTypes.DEFAULT_TYPE):
     await update.callback_query.answer()
     await update.callback_query.edit_message_text(
-        "💬 **NIAO 聊天模式已开启**\n\n"
-        "直接发消息给我即可～\n"
-        "输入 /back 返回牧场",
+        "💬 **NIAO 聊天模式已开启**\n\n直接发消息给我即可～\n输入 /back 返回牧场",
         parse_mode='Markdown'
     )
 
@@ -401,13 +402,13 @@ def main():
 
     app.add_handler(CallbackQueryHandler(button_handler))
 
-    # 私聊 AI 处理器（优先级最高）
-    app.add_handler(
-        MessageHandler(filters.TEXT & ~filters.COMMAND & filters.ChatType.PRIVATE, ai_response),
-        group=0
-    )
+    # 私聊 AI
+    app.add_handler(MessageHandler(
+        filters.TEXT & ~filters.COMMAND & filters.ChatType.PRIVATE, 
+        ai_response
+    ), group=0)
 
-    logger.info("🚀 飞鸟牧场 + NIAO 完整版启动成功！（调试模式）")
+    logger.info("🚀 飞鸟牧场 + NIAO 完整版启动成功！")
     app.run_polling(drop_pending_updates=True)
 
 if __name__ == '__main__':
