@@ -167,19 +167,16 @@ async def delete_later(context: ContextTypes.DEFAULT_TYPE):
     except:
         pass
 
-# ====================== NIAO AI（加强版） ======================
+# ====================== NIAO AI ======================
 async def ai_response(update: Update, context: ContextTypes.DEFAULT_TYPE):
     if not model:
         await update.message.reply_text("❌ NIAO 未启用")
         return
-
     text = update.message.text.strip()
     if not text:
         return
-
-    logger.info(f"[NIAO] 收到私聊: {text}")
+    logger.info(f"[NIAO] 收到消息: {text}")
     await update.message.chat.send_action("typing")
-
     try:
         prompt = f"""你叫 NIAO，是飞鸟牧场可爱幽默的专属AI助手。
 只回复纯文字，经常自称“NIAO”，语气活泼。
@@ -195,11 +192,22 @@ async def ai_response(update: Update, context: ContextTypes.DEFAULT_TYPE):
 async def ai_button(update: Update, context: ContextTypes.DEFAULT_TYPE):
     await update.callback_query.answer()
     await update.callback_query.edit_message_text(
-        "💬 **NIAO 聊天模式已开启**\n\n"
-        "直接发消息给我即可～\n"
-        "输入 /back 返回牧场",
+        "💬 **NIAO 聊天模式已开启**\n\n直接发消息给我即可～\n输入 /back 返回牧场",
         parse_mode='Markdown'
     )
+
+# ====================== 群聊经验 ======================
+async def group_chat_exp(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    if update.effective_chat.type == "private":
+        return
+    user = get_user_data(update.effective_user.id)
+    if user.get("chat_exp_today", 0) >= 30:
+        return
+    exp_gain = random.randint(1, 3)
+    user["chat_exp_today"] += exp_gain
+    if add_exp(update.effective_user.id, exp_gain):
+        await update.message.reply_text(f"🎉 聊天获得经验！升级到 {user['level']} 级！", quote=True)
+    save_data()
 
 # ====================== 按钮处理器 ======================
 async def button_handler(update: Update, context: ContextTypes.DEFAULT_TYPE):
