@@ -35,7 +35,7 @@ if GEMINI_API_KEY and genai:
     try:
         genai.configure(api_key=GEMINI_API_KEY)
         model = genai.GenerativeModel(
-            model_name='gemini-2.0-flash-exp',
+            model_name='gemini-3.1-pro',   # 使用你界面上可用的模型
             safety_settings={
                 HarmCategory.HARM_CATEGORY_HARASSMENT: HarmBlockThreshold.BLOCK_NONE,
                 HarmCategory.HARM_CATEGORY_HATE_SPEECH: HarmBlockThreshold.BLOCK_NONE,
@@ -44,10 +44,10 @@ if GEMINI_API_KEY and genai:
             },
             generation_config=genai.GenerationConfig(
                 temperature=0.85,
-                max_output_tokens=800,
+                max_output_tokens=1000,
             )
         )
-        logger.info("✅ Gemini 模型加载成功")
+        logger.info("✅ Gemini 3.1 Pro 模型加载成功")
     except Exception as e:
         logger.error(f"❌ Gemini 初始化失败: {e}")
         model = None
@@ -63,7 +63,6 @@ GROUP_FILE = "groups.json"
 user_data = {}
 group_ids = set()
 
-# ====================== 数据函数 ======================
 def load_data():
     global user_data, group_ids
     try:
@@ -130,7 +129,6 @@ def calculate_combat(user):
     base = user["combat"] + (per["strength"] * user["birds"]) * 1.2 + (per["agility"] * user["birds"]) * 0.8
     return int(base * (1 + (per["intelligence"] * user["birds"]) / 200))
 
-# ====================== 键盘 ======================
 def build_keyboard():
     return InlineKeyboardMarkup([
         [InlineKeyboardButton("🥚 捡蛋", callback_data="pick_egg"), InlineKeyboardButton("⚡ 赶产", callback_data="rush_produce")],
