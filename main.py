@@ -2,13 +2,32 @@ import logging
 import os
 import json
 import random
+import base64
 from datetime import date, time
+
+import google.generativeai as genai
+
 from telegram import Update, InlineKeyboardButton, InlineKeyboardMarkup
 from telegram.ext import (
-    Application, CommandHandler, CallbackQueryHandler, 
-    ContextTypes, ChatMemberHandler
+    Application, CommandHandler, CallbackQueryHandler,
+    ContextTypes, ChatMemberHandler, MessageHandler, filters
 )
 
+# ====================== Gemini Key（已隐藏）======================
+def get_gemini_key():
+    encoded = "Z2VuLWxhbmctY2xpZW50LTAxNjAyOTM4ODg="
+    return base64.b64decode(encoded).decode('utf-8')
+
+GEMINI_API_KEY = os.getenv("GEMINI_API_KEY") or get_gemini_key()
+
+if GEMINI_API_KEY:
+    genai.configure(api_key=GEMINI_API_KEY)
+    model = genai.GenerativeModel('gemini-1.5-flash')
+else:
+    model = None
+    logging.warning("⚠️ Gemini API Key 未找到")
+
+# ====================== 机器人配置 ======================
 TOKEN = os.getenv("TELEGRAM_BOT_TOKEN")
 if not TOKEN:
     raise ValueError("❌ 请设置 TELEGRAM_BOT_TOKEN")
@@ -48,21 +67,12 @@ def get_user_data(user_id: int, effective_user=None):
     today = str(date.today())
     if uid not in user_data:
         user_data[uid] = {
-            "feed": 50, 
-            "birds": 1,          
-            "nests": 4,
-            "level": 1, 
-            "exp": 0, 
-            "last_active": 0,
-            "combat": 100, 
-            "stamina": 0, 
-            "strength": 0, 
-            "intelligence": 0, 
-            "agility": 0,
-            "feed_count_today": 0, 
-            "last_feed_date": today, 
-            "last_checkin": "",
-            "nickname": ""
+            "feed": 50, "birds": 1, "nests": 4,
+            "level": 1, "exp": 0, "last_active": 0,
+            "combat": 100, "stamina": 0, "strength": 0,
+            "intelligence": 0, "agility": 0,
+            "feed_count_today": 0, "last_feed_date": today,
+            "last_checkin": "", "nickname": ""
         }
     if effective_user:
         name = effective_user.full_name or effective_user.first_name or f"用户{uid[-4:]}"
@@ -73,21 +83,18 @@ def add_exp(user_id: int, amount: int):
     user = get_user_data(user_id)
     user["exp"] += amount
     old_level = user["level"]
-    
-    # 99级经验曲线（逐渐递增）
     LEVELS = [0]
     for i in range(1, 100):
-        exp_needed = int(100 * (i ** 1.6))   # 平滑增长曲线
+        exp_needed = int(100 * (i ** 1.6))
         LEVELS.append(exp_needed)
     
     while user["level"] < 99 and user["exp"] >= LEVELS[user["level"]]:
         user["level"] += 1
-        user["combat"] *= 2                    # 每升一级战斗力翻倍
+        user["combat"] *= 2
         user["stamina"] += 25
         user["strength"] += 15
         user["intelligence"] += 15
         user["agility"] += 15
-    
     return user["level"] > old_level
 
 def calculate_combat(user):
@@ -102,7 +109,8 @@ def build_keyboard():
     return InlineKeyboardMarkup([
         [InlineKeyboardButton("🥚 捡蛋", callback_data="pick_egg"), InlineKeyboardButton("⚡ 赶产", callback_data="rush_produce")],
         [InlineKeyboardButton("🌾 喂养", callback_data="feed_birds"), InlineKeyboardButton("🧹 清扫", callback_data="clean_dung")],
-        [InlineKeyboardButton("⚔️ PK", callback_data="pk_menu"), InlineKeyboardButton("🦜 官网", callback_data="official_web")],
+        [InlineKeyboardButton("⚔️ PK", callback_data="pk_menu"), InlineKeyboardButton("💬 NIAO文字聊天", callback_data="ai_chat")],
+        [InlineKeyboardButton("🦜 官网", callback_data="official_web")],
     ])
 
 def pk_keyboard():
@@ -130,14 +138,13 @@ async def send_panel(update: Update, edit: bool = False):
     except Exception as e:
         logger.error(f"面板错误: {e}")
 
-# ================== 自动删除消息 ==================
+# ================== 辅助功能 ==================
 async def delete_later(context: ContextTypes.DEFAULT_TYPE):
     try:
         await context.bot.delete_message(context.job.data['chat_id'], context.job.data['message_id'])
     except:
         pass
 
-# ================== 群ID记录 & 每日签到 ==================
 async def track_group(update: Update, context: ContextTypes.DEFAULT_TYPE):
     if update.my_chat_member and update.my_chat_member.new_chat_member.status in ["member", "administrator"]:
         chat_id = update.effective_chat.id
@@ -159,6 +166,45 @@ async def daily_checkin_notice(context: ContextTypes.DEFAULT_TYPE):
         except:
             pass
 
+# ================== NIAO 纯文字聊天 ==================
+async def ai_response(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    if not model:
+        await update.message.reply_text("❌ NIAO 暂时无法连接，请稍后再试")
+        return
+
+    user_input = update.message.text.strip()
+    if not user_input:
+        return
+
+    await update.message.chat.send_action("typing")
+
+    try:
+        prompt = f"""你叫 NIAO，是飞鸟牧场可爱又幽默的专属AI助手。
+【重要规则】：只回复纯文字消息，不要发送任何图片、表情包、语音、文件或Markdown图片链接。
+请用活泼、可爱、带表情符号的语气回复，并经常自称“NIAO”。
+用户说：{user_input}"""
+
+        response = model.generate_content(prompt)
+        reply_text = response.text.strip()
+        
+        # 确保纯文字
+        if len(reply_text) > 4000:
+            reply_text = reply_text[:3997] + "..."
+            
+        await update.message.reply_text(reply_text)
+    except Exception as e:
+        logger.error(f"Gemini 错误: {e}")
+        await update.message.reply_text("❌ NIAO 刚才走神了～ 请再说一次吧！")
+
+async def ai_button(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    await update.callback_query.answer()
+    await update.callback_query.edit_message_text(
+        "💬 **我是NIAO， 聊天模式已开启！**\n\n"
+        "现在可以直接和我聊天啦～\n"
+        "输入 /back 返回牧场面板",
+        parse_mode='Markdown'
+    )
+
 # ================== 按钮处理器 ==================
 async def button_handler(update: Update, context: ContextTypes.DEFAULT_TYPE):
     query = update.callback_query
@@ -168,7 +214,11 @@ async def button_handler(update: Update, context: ContextTypes.DEFAULT_TYPE):
 
     reply = None
 
-    if data == "official_web":
+    if data == "ai_chat":
+        await ai_button(update, context)
+        return
+
+    elif data == "official_web":
         reply = await query.message.reply_text("🦜 **NIAO官网**\nhttps://www.niaocoin.xyz/", parse_mode='Markdown')
 
     elif data == "daily_checkin":
@@ -181,7 +231,6 @@ async def button_handler(update: Update, context: ContextTypes.DEFAULT_TYPE):
             reply = await query.message.reply_text("✅ 签到成功！\n+50 经验")
             if leveled:
                 await query.message.reply_text(f"🎉 升级了！当前 {user['level']} 级")
-        save_data()
 
     elif data == "pk_menu":
         await query.edit_message_text("⚔️ **请选择PK模式**", reply_markup=pk_keyboard(), parse_mode='Markdown')
@@ -196,13 +245,6 @@ async def button_handler(update: Update, context: ContextTypes.DEFAULT_TYPE):
         else:
             result = "😔 你输了"
         reply = await query.message.reply_text(f"⚔️ **随机PK**\n你的战力：**{power1}**\n对手战力：**{power2}**\n\n{result}", parse_mode='Markdown')
-
-    elif data == "pk_target":
-        reply = await query.message.reply_text("👤 使用 `/pk @用户名` 发起挑战")
-
-    elif data == "back_to_main":
-        await send_panel(update, edit=True)
-        return
 
     elif data == "feed_birds":
         today = str(date.today())
@@ -236,32 +278,31 @@ async def button_handler(update: Update, context: ContextTypes.DEFAULT_TYPE):
         if leveled:
             await query.message.reply_text(f"🎉 升级了！当前 {user['level']} 级")
 
+    elif data == "back_to_main":
+        await send_panel(update, edit=True)
+        return
+
     if reply:
         context.job_queue.run_once(delete_later, 2, data={'chat_id': reply.chat_id, 'message_id': reply.message_id})
 
     save_data()
-    if data not in ["pk_menu", "pk_random", "pk_target", "daily_checkin"]:
+    if data not in ["pk_menu", "pk_random", "pk_target", "daily_checkin", "ai_chat"]:
         await send_panel(update, edit=True)
 
 # ================== 命令 ==================
 async def start(update: Update, context: ContextTypes.DEFAULT_TYPE):
     get_user_data(update.effective_user.id, update.effective_user)
-    await update.message.reply_text("🎉 欢迎来到飞鸟牧场！\n你已拥有1只专属🦜\n最高可升至 **99级**")
+    await update.message.reply_text("🎉 欢迎来到飞鸟牧场！\n我是 **NIAO**，只支持纯文字聊天哦～")
     await send_panel(update)
 
-async def open_farm(update: Update, context: ContextTypes.DEFAULT_TYPE):
+async def back_to_farm(update: Update, context: ContextTypes.DEFAULT_TYPE):
     await send_panel(update)
 
 async def rank(update: Update, context: ContextTypes.DEFAULT_TYPE):
     if not user_data:
         await update.message.reply_text("🏆 目前还没有玩家上榜")
         return
-    sorted_users = sorted(
-        user_data.items(), 
-        key=lambda x: calculate_combat(x[1]), 
-        reverse=True
-    )[:10]
-    
+    sorted_users = sorted(user_data.items(), key=lambda x: calculate_combat(x[1]), reverse=True)[:10]
     text = "🏆 **飞鸟牧场战斗力排行榜** 🏆\n\n"
     for i, (uid, d) in enumerate(sorted_users, 1):
         nickname = d.get("nickname", f"用户{uid[-4:]}")
@@ -307,13 +348,17 @@ def main():
     app.add_handler(ChatMemberHandler(track_group, ChatMemberHandler.MY_CHAT_MEMBER))
 
     app.add_handler(CommandHandler("start", start))
-    app.add_handler(CommandHandler("open", open_farm))
+    app.add_handler(CommandHandler("open", send_panel))
     app.add_handler(CommandHandler("rank", rank))
     app.add_handler(CommandHandler("checkin", checkin_cmd))
     app.add_handler(CommandHandler("pk", pk_command))
-    app.add_handler(CallbackQueryHandler(button_handler))
+    app.add_handler(CommandHandler("ai", ai_response))
+    app.add_handler(CommandHandler("back", back_to_farm))
 
-    logger.info("🚀 飞鸟牧场（99级版）机器人启动成功！")
+    app.add_handler(CallbackQueryHandler(button_handler))
+    app.add_handler(MessageHandler(filters.TEXT & ~filters.COMMAND, ai_response))
+
+    logger.info("🚀 飞鸟牧场 + NIAO（纯文字聊天）启动成功！")
     app.run_polling(drop_pending_updates=True)
 
 if __name__ == '__main__':
