@@ -62,6 +62,7 @@ GROUP_FILE = "groups.json"
 
 user_data = {}
 group_ids = set()
+chat_mode = {}  # 记录哪个群开启了AI聊天模式
 
 # ====================== 数据函数 ======================
 def load_data():
@@ -182,7 +183,7 @@ async def delete_later(context: ContextTypes.DEFAULT_TYPE):
     except:
         pass
 
-# ====================== NIAO AI（私聊直接回复，群聊需@机器人） ======================
+# ====================== NIAO AI ======================
 async def ai_response(update: Update, context: ContextTypes.DEFAULT_TYPE):
     if not model:
         await update.message.reply_text("❌ NIAO 未启用")
@@ -193,13 +194,18 @@ async def ai_response(update: Update, context: ContextTypes.DEFAULT_TYPE):
         return
 
     chat = update.effective_chat
+    chat_id = chat.id
+    is_group = chat.type in ["group", "supergroup"]
+
     logger.info(f"[NIAO] 收到消息: {text} | 类型: {chat.type}")
 
-    # 群聊必须 @机器人 才回复
-    if chat.type in ["group", "supergroup"]:
-        bot_username = (await context.bot.get_me()).username
-        if bot_username and f"@{bot_username.lower()}" not in text.lower():
-            return  # 群里没提到机器人就不回复
+    # 群聊触发条件
+    if is_group:
+        bot_username = (await context.bot.get_me()).username or ""
+        mentioned = f"@{bot_username.lower()}" in text.lower()
+        in_mode = chat_mode.get(chat_id, False)
+        if not (mentioned or in_mode):
+            return  # 群聊未@且未进入模式则不回复
 
     await update.message.chat.send_action("typing")
 
@@ -217,9 +223,11 @@ async def ai_response(update: Update, context: ContextTypes.DEFAULT_TYPE):
         await update.message.reply_text("❌ NIAO 连接失败～ 请稍后再试！")
 
 async def ai_button(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    chat_id = update.effective_chat.id
+    chat_mode[chat_id] = True
     await update.callback_query.answer()
     await update.callback_query.edit_message_text(
-        "💬 **NIAO 聊天模式已开启**\n\n直接发消息给我即可～\n输入 /back 返回牧场",
+        "💬 **NIAO 聊天模式已开启**\n\n群里直接发消息或 @我 即可聊天～\n输入 /back 返回牧场",
         parse_mode='Markdown'
     )
 
@@ -387,13 +395,13 @@ def main():
 
     app.add_handler(CallbackQueryHandler(button_handler))
 
-    # AI 消息处理器（私聊直接回复，群聊需@机器人）
+    # AI 处理器（私聊直接回复，群聊@或按钮模式）
     app.add_handler(MessageHandler(
         filters.TEXT & ~filters.COMMAND,
         ai_response
     ), group=0)
 
-    logger.info("🚀 飞鸟牧场 + NIAO 完整版启动成功！（群聊需@机器人）")
+    logger.info("🚀 飞鸟牧场 + NIAO 完整版启动成功！（群聊@或按钮模式）")
     app.run_polling(drop_pending_updates=True)
 
 if __name__ == '__main__':
