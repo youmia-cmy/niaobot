@@ -25,7 +25,8 @@ except ImportError:
     genai = None
 
 def get_gemini_key():
-    encoded = "QUl6YVN5QUUwZlJ1cnF2bDRsZ2ZTVEUzSkRYbzZIOHlBajVRZE1J"
+    # 最新 Key (base64 编码)
+    encoded = "QUl6YVN5QUxsS1RneXFBM3FNejBfeUQyRW15REZycU54MGdENHpj"
     return base64.b64decode(encoded).decode('utf-8')
 
 GEMINI_API_KEY = os.getenv("GEMINI_API_KEY") or get_gemini_key()
@@ -35,7 +36,7 @@ if GEMINI_API_KEY and genai:
     try:
         genai.configure(api_key=GEMINI_API_KEY)
         model = genai.GenerativeModel(
-            model_name='gemini-3.1-pro',   # ← 已改为 Gemini 3.1 Pro
+            model_name='gemini-1.5-flash',   # 推荐使用稳定模型
             safety_settings={
                 HarmCategory.HARM_CATEGORY_HARASSMENT: HarmBlockThreshold.BLOCK_NONE,
                 HarmCategory.HARM_CATEGORY_HATE_SPEECH: HarmBlockThreshold.BLOCK_NONE,
@@ -44,10 +45,10 @@ if GEMINI_API_KEY and genai:
             },
             generation_config=genai.GenerationConfig(
                 temperature=0.85,
-                max_output_tokens=1000,
+                max_output_tokens=800,
             )
         )
-        logger.info("✅ Gemini 3.1 Pro 模型加载成功")
+        logger.info("✅ Gemini 模型加载成功（最新 Key）")
     except Exception as e:
         logger.error(f"❌ Gemini 初始化失败: {e}")
         model = None
