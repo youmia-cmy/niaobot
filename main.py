@@ -12,14 +12,14 @@ from telegram.ext import (
     ContextTypes, ChatMemberHandler, MessageHandler, filters
 )
 
-# ====================== 日志（调试模式） ======================
+# ====================== 日志 ======================
 logging.basicConfig(
     format='%(asctime)s - %(name)s - %(levelname)s - %(message)s',
-    level=logging.DEBUG
+    level=logging.INFO
 )
 logger = logging.getLogger(__name__)
 
-# ====================== Gemini AI（使用你的 Key） ======================
+# ====================== Gemini AI ======================
 try:
     import google.generativeai as genai
     from google.generativeai.types import HarmCategory, HarmBlockThreshold
@@ -28,8 +28,8 @@ except ImportError:
     logger.error("❌ google-generativeai 未安装")
 
 def get_gemini_key():
-    # base64 编码的 Key（已哈希处理）
-    encoded = "QUl6YVN5QWgxRDFNYy1NTkRZN2pyem5hZ1JLc3hxY0JoU1ItaUNB"
+    # 新 Key 已 base64 编码（不会明文显示）
+    encoded = "QUl6YVN5QUUwZlJ1cnF2bDRsZ2ZTVEUzSkRYbzZIOHlBajVRZE1J"
     return base64.b64decode(encoded).decode('utf-8')
 
 GEMINI_API_KEY = os.getenv("GEMINI_API_KEY") or get_gemini_key()
@@ -38,10 +38,8 @@ model = None
 if GEMINI_API_KEY and genai:
     try:
         genai.configure(api_key=GEMINI_API_KEY)
-        
-        # 尝试常用稳定模型
         model = genai.GenerativeModel(
-            model_name='gemini-1.5-flash',   # 改用更稳定的模型
+            model_name='gemini-1.5-flash',
             safety_settings={
                 HarmCategory.HARM_CATEGORY_HARASSMENT: HarmBlockThreshold.BLOCK_NONE,
                 HarmCategory.HARM_CATEGORY_HATE_SPEECH: HarmBlockThreshold.BLOCK_NONE,
@@ -51,10 +49,9 @@ if GEMINI_API_KEY and genai:
             generation_config=genai.GenerationConfig(
                 temperature=0.85,
                 max_output_tokens=800,
-                top_p=0.95,
             )
         )
-        logger.info("✅ Gemini 模型加载成功 (使用你的 API Key)")
+        logger.info("✅ Gemini 模型加载成功（新 Key）")
     except Exception as e:
         logger.error(f"❌ Gemini 初始化失败: {e}")
         model = None
@@ -193,20 +190,15 @@ async def delete_later(context: ContextTypes.DEFAULT_TYPE):
 
 # ====================== NIAO AI ======================
 async def ai_response(update: Update, context: ContextTypes.DEFAULT_TYPE):
-    logger.debug(f"🔍 ai_response 被触发 | 类型: {update.effective_chat.type}")
-    
     if not model:
-        await update.message.reply_text("❌ NIAO 未启用，请联系管理员")
-        return
-
-    if not update.message or not update.message.text:
+        await update.message.reply_text("❌ NIAO 未启用")
         return
 
     text = update.message.text.strip()
     if not text:
         return
 
-    logger.info(f"[NIAO] 收到消息: {text[:100]}...")
+    logger.info(f"[NIAO] 收到消息: {text}")
     await update.message.chat.send_action("typing")
 
     try:
@@ -215,16 +207,11 @@ async def ai_response(update: Update, context: ContextTypes.DEFAULT_TYPE):
 用户说：{text}"""
 
         response = model.generate_content(prompt)
-        
-        if response and response.text:
-            reply = response.text.strip()[:4000]
-            await update.message.reply_text(reply)
-            logger.info("[NIAO] 回复成功")
-        else:
-            await update.message.reply_text("😔 NIAO 这次没想好说什么～ 再鸟我一次嘛！")
-
+        reply = response.text.strip()[:4000] if response and response.text else "😔 NIAO 这次没想好说什么～ 再鸟我一次嘛！"
+        await update.message.reply_text(reply)
+        logger.info("[NIAO] 回复成功")
     except Exception as e:
-        logger.error(f"[NIAO] API 调用失败: {type(e).__name__} - {e}", exc_info=True)
+        logger.error(f"[NIAO] API 调用失败: {e}")
         await update.message.reply_text("❌ NIAO 连接失败～ 请稍后再试！")
 
 async def ai_button(update: Update, context: ContextTypes.DEFAULT_TYPE):
@@ -316,11 +303,9 @@ async def button_handler(update: Update, context: ContextTypes.DEFAULT_TYPE):
     elif data == "pk_random":
         power1 = calculate_combat(user)
         power2 = random.randint(max(30, power1 - 120), power1 + 200)
+        result = "🎉 你赢了！+80 经验" if power1 > power2 else "😔 你输了"
         if power1 > power2:
-            result = "🎉 你赢了！+80 经验"
             add_exp(update.effective_user.id, 80)
-        else:
-            result = "😔 你输了"
         reply = await query.message.reply_text(f"⚔️ **随机PK**\n你的战力：**{power1}**\n对手战力：**{power2}**\n\n{result}", parse_mode='Markdown')
     elif data == "back_to_main":
         await send_panel(update, edit=True)
@@ -371,11 +356,9 @@ async def pk_command(update: Update, context: ContextTypes.DEFAULT_TYPE):
     user = get_user_data(update.effective_user.id, update.effective_user)
     power1 = calculate_combat(user)
     power2 = random.randint(max(30, power1 - 120), power1 + 200)
+    result = "🎉 你赢了！+80 经验" if power1 > power2 else "😔 你输了"
     if power1 > power2:
-        result = "🎉 你赢了！+80 经验"
         add_exp(update.effective_user.id, 80)
-    else:
-        result = "😔 你输了"
     await update.message.reply_text(f"⚔️ **随机PK**\n你的战力：**{power1}**\n对手战力：**{power2}**\n\n{result}", parse_mode='Markdown')
     save_data()
 
@@ -402,7 +385,6 @@ def main():
 
     app.add_handler(CallbackQueryHandler(button_handler))
 
-    # 私聊 AI
     app.add_handler(MessageHandler(
         filters.TEXT & ~filters.COMMAND & filters.ChatType.PRIVATE, 
         ai_response
