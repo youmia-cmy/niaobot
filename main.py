@@ -12,11 +12,14 @@ from telegram.ext import (
     ContextTypes, ChatMemberHandler, MessageHandler, filters
 )
 
-# ====================== 日志 ======================
-logging.basicConfig(format='%(asctime)s - %(name)s - %(levelname)s - %(message)s', level=logging.INFO)
+# ====================== 日志（调试模式） ======================
+logging.basicConfig(
+    format='%(asctime)s - %(name)s - %(levelname)s - %(message)s',
+    level=logging.DEBUG
+)
 logger = logging.getLogger(__name__)
 
-# ====================== Gemini AI (适配 0.8.6) ======================
+# ====================== Gemini AI ======================
 try:
     import google.generativeai as genai
     from google.generativeai.types import HarmCategory, HarmBlockThreshold
@@ -34,7 +37,6 @@ model = None
 if GEMINI_API_KEY and genai:
     try:
         genai.configure(api_key=GEMINI_API_KEY)
-        
         model = genai.GenerativeModel(
             model_name='gemini-3-flash-preview',
             safety_settings={
@@ -45,16 +47,16 @@ if GEMINI_API_KEY and genai:
             },
             generation_config=genai.GenerationConfig(
                 temperature=0.85,
-                max_output_tokens=1000,
+                max_output_tokens=800,
                 top_p=0.95,
             )
         )
-        logger.info("✅ Gemini 模型加载成功 (google-generativeai 0.8.6)")
+        logger.info("✅ Gemini 模型加载成功 (0.8.6)")
     except Exception as e:
         logger.error(f"❌ Gemini 初始化失败: {e}")
         model = None
 else:
-    logger.warning("⚠️ Gemini AI 未启用（缺少 API Key）")
+    logger.warning("⚠️ Gemini AI 未启用")
 
 # ====================== 配置 ======================
 TOKEN = os.getenv("TELEGRAM_BOT_TOKEN")
@@ -77,8 +79,8 @@ def load_data():
         if os.path.exists(GROUP_FILE):
             with open(GROUP_FILE, "r", encoding="utf-8") as f:
                 group_ids = set(json.load(f))
-    except:
-        pass
+    except Exception as e:
+        logger.error(f"加载数据失败: {e}")
 
 def save_data():
     try:
@@ -87,7 +89,7 @@ def save_data():
         with open(GROUP_FILE, "w", encoding="utf-8") as f:
             json.dump(list(group_ids), f)
     except Exception as e:
-        logger.error(f"保存失败: {e}")
+        logger.error(f"保存数据失败: {e}")
 
 def get_user_data(user_id: int, effective_user=None):
     uid = str(user_id)
@@ -186,10 +188,15 @@ async def delete_later(context: ContextTypes.DEFAULT_TYPE):
     except:
         pass
 
-# ====================== NIAO AI（核心优化） ======================
+# ====================== NIAO AI ======================
 async def ai_response(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    logger.debug(f"🔍 ai_response 被触发 | 类型: {update.effective_chat.type} | 消息: {update.message.text if update.message else None}")
+    
     if not model:
         await update.message.reply_text("❌ NIAO 未启用，请联系管理员")
+        return
+
+    if not update.message or not update.message.text:
         return
 
     text = update.message.text.strip()
@@ -201,12 +208,12 @@ async def ai_response(update: Update, context: ContextTypes.DEFAULT_TYPE):
 
     try:
         prompt = f"""你叫 NIAO，是飞鸟牧场可爱幽默的专属AI助手。
-只回复纯文字，经常自称“NIAO”，语气活泼可爱，像小女生一样撒娇。
+只回复纯文字，经常自称“NIAO”，语气活泼可爱，像小女生一样。
 用户说：{text}"""
 
         response = model.generate_content(prompt)
         
-        if response and hasattr(response, 'text') and response.text:
+        if response and response.text:
             reply = response.text.strip()[:4000]
             await update.message.reply_text(reply)
             logger.info("[NIAO] 回复成功")
@@ -214,13 +221,15 @@ async def ai_response(update: Update, context: ContextTypes.DEFAULT_TYPE):
             await update.message.reply_text("😔 NIAO 这次没想好说什么～ 再鸟我一次嘛！")
 
     except Exception as e:
-        logger.error(f"[NIAO] 生成失败: {type(e).__name__} - {str(e)}")
+        logger.error(f"[NIAO] 生成失败: {type(e).__name__} - {e}", exc_info=True)
         await update.message.reply_text("❌ NIAO 刚才卡住了～ 再试一次吧！")
 
 async def ai_button(update: Update, context: ContextTypes.DEFAULT_TYPE):
     await update.callback_query.answer()
     await update.callback_query.edit_message_text(
-        "💬 **NIAO 聊天已开启**\n\n直接发消息给我即可～\n输入 /back 返回牧场",
+        "💬 **NIAO 聊天模式已开启**\n\n"
+        "直接发消息给我即可～\n"
+        "输入 /back 返回牧场",
         parse_mode='Markdown'
     )
 
@@ -391,14 +400,14 @@ def main():
     app.add_handler(CommandHandler("back", back_to_farm))
 
     app.add_handler(CallbackQueryHandler(button_handler))
-    
-    # 私聊 AI 聊天
-    app.add_handler(MessageHandler(
-        filters.TEXT & ~filters.COMMAND & filters.ChatType.PRIVATE, 
-        ai_response
-    ))
 
-    logger.info("🚀 飞鸟牧场 + NIAO 完整版启动成功！")
+    # 私聊 AI 处理器（优先级最高）
+    app.add_handler(
+        MessageHandler(filters.TEXT & ~filters.COMMAND & filters.ChatType.PRIVATE, ai_response),
+        group=0
+    )
+
+    logger.info("🚀 飞鸟牧场 + NIAO 完整版启动成功！（调试模式）")
     app.run_polling(drop_pending_updates=True)
 
 if __name__ == '__main__':
