@@ -5,14 +5,12 @@ import random
 import base64
 from datetime import date, time
 
-# ====================== Telegram 导入 ======================
 from telegram import Update, InlineKeyboardButton, InlineKeyboardMarkup
 from telegram.ext import (
     Application, CommandHandler, CallbackQueryHandler,
     ContextTypes, ChatMemberHandler, MessageHandler, filters
 )
 
-# ====================== 日志 ======================
 logging.basicConfig(
     format='%(asctime)s - %(name)s - %(levelname)s - %(message)s',
     level=logging.INFO
@@ -28,7 +26,6 @@ except ImportError:
     logger.error("❌ google-generativeai 未安装")
 
 def get_gemini_key():
-    # 最新 Key (base64 编码)
     encoded = "QUl6YVN5QUUwZlJ1cnF2bDRsZ2ZTVEUzSkRYbzZIOHlBajVRZE1J"
     return base64.b64decode(encoded).decode('utf-8')
 
@@ -51,12 +48,10 @@ if GEMINI_API_KEY and genai:
                 max_output_tokens=800,
             )
         )
-        logger.info("✅ Gemini 模型加载成功（最新 Key）")
+        logger.info("✅ Gemini 模型加载成功")
     except Exception as e:
         logger.error(f"❌ Gemini 初始化失败: {e}")
         model = None
-else:
-    logger.warning("⚠️ Gemini AI 未启用")
 
 # ====================== 配置 ======================
 TOKEN = os.getenv("TELEGRAM_BOT_TOKEN")
@@ -207,7 +202,7 @@ async def ai_response(update: Update, context: ContextTypes.DEFAULT_TYPE):
 用户说：{text}"""
 
         response = model.generate_content(prompt)
-        reply = response.text.strip()[:4000] if response and response.text else "😔 NIAO 这次没想好说什么～ 再鸟我一次嘛！"
+        reply = response.text.strip()[:4000] if response and response.text else "😔 NIAO 这次没想好说什么～"
         await update.message.reply_text(reply)
         logger.info("[NIAO] 回复成功")
     except Exception as e:
