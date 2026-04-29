@@ -16,12 +16,13 @@ from telegram.ext import (
 logging.basicConfig(format='%(asctime)s - %(name)s - %(levelname)s - %(message)s', level=logging.INFO)
 logger = logging.getLogger(__name__)
 
-# ====================== Gemini AI ======================
+# ====================== Gemini AI (适配 0.8.6) ======================
 try:
     import google.generativeai as genai
+    from google.generativeai.types import HarmCategory, HarmBlockThreshold
 except ImportError:
     genai = None
-    print("⚠️ google-generativeai 未安装")
+    logger.error("❌ google-generativeai 未安装")
 
 def get_gemini_key():
     encoded = "Z2VuLWxhbmctY2xpZW50LTAxNjAyOTM4ODg="
@@ -29,13 +30,31 @@ def get_gemini_key():
 
 GEMINI_API_KEY = os.getenv("GEMINI_API_KEY") or get_gemini_key()
 
+model = None
 if GEMINI_API_KEY and genai:
-    genai.configure(api_key=GEMINI_API_KEY)
-    model = genai.GenerativeModel('gemini-3-flash-preview')
-    logger.info("✅ Gemini 模型加载成功")
+    try:
+        genai.configure(api_key=GEMINI_API_KEY)
+        
+        model = genai.GenerativeModel(
+            model_name='gemini-3-flash-preview',
+            safety_settings={
+                HarmCategory.HARM_CATEGORY_HARASSMENT: HarmBlockThreshold.BLOCK_NONE,
+                HarmCategory.HARM_CATEGORY_HATE_SPEECH: HarmBlockThreshold.BLOCK_NONE,
+                HarmCategory.HARM_CATEGORY_SEXUALLY_EXPLICIT: HarmBlockThreshold.BLOCK_NONE,
+                HarmCategory.HARM_CATEGORY_DANGEROUS_CONTENT: HarmBlockThreshold.BLOCK_NONE,
+            },
+            generation_config=genai.GenerationConfig(
+                temperature=0.85,
+                max_output_tokens=1000,
+                top_p=0.95,
+            )
+        )
+        logger.info("✅ Gemini 模型加载成功 (google-generativeai 0.8.6)")
+    except Exception as e:
+        logger.error(f"❌ Gemini 初始化失败: {e}")
+        model = None
 else:
-    model = None
-    logger.warning("⚠️ Gemini AI 未启用")
+    logger.warning("⚠️ Gemini AI 未启用（缺少 API Key）")
 
 # ====================== 配置 ======================
 TOKEN = os.getenv("TELEGRAM_BOT_TOKEN")
@@ -120,7 +139,7 @@ def build_keyboard():
     return InlineKeyboardMarkup([
         [InlineKeyboardButton("🥚 捡蛋", callback_data="pick_egg"), InlineKeyboardButton("⚡ 赶产", callback_data="rush_produce")],
         [InlineKeyboardButton("🌾 喂养", callback_data="feed_birds"), InlineKeyboardButton("🧹 清扫", callback_data="clean_dung")],
-        [InlineKeyboardButton("⚔️ PK", callback_data="pk_menu"), InlineKeyboardButton("💬 NIAO文字聊天", callback_data="ai_chat")],
+        [InlineKeyboardButton("⚔️ PK", callback_data="pk_menu"), InlineKeyboardButton("💬 NIAO~AI🦜", callback_data="ai_chat")],
         [InlineKeyboardButton("🦜 官网", callback_data="official_web")],
     ])
 
@@ -167,32 +186,41 @@ async def delete_later(context: ContextTypes.DEFAULT_TYPE):
     except:
         pass
 
-# ====================== NIAO AI ======================
+# ====================== NIAO AI（核心优化） ======================
 async def ai_response(update: Update, context: ContextTypes.DEFAULT_TYPE):
     if not model:
-        await update.message.reply_text("❌ NIAO 未启用")
+        await update.message.reply_text("❌ NIAO 未启用，请联系管理员")
         return
+
     text = update.message.text.strip()
     if not text:
         return
-    logger.info(f"[NIAO] 收到消息: {text}")
+
+    logger.info(f"[NIAO] 收到消息: {text[:100]}...")
     await update.message.chat.send_action("typing")
+
     try:
         prompt = f"""你叫 NIAO，是飞鸟牧场可爱幽默的专属AI助手。
-只回复纯文字，经常自称“NIAO”，语气活泼。
+只回复纯文字，经常自称“NIAO”，语气活泼可爱，像小女生一样撒娇。
 用户说：{text}"""
+
         response = model.generate_content(prompt)
-        reply = response.text.strip()[:4000]
-        await update.message.reply_text(reply)
-        logger.info("[NIAO] 回复成功")
+        
+        if response and hasattr(response, 'text') and response.text:
+            reply = response.text.strip()[:4000]
+            await update.message.reply_text(reply)
+            logger.info("[NIAO] 回复成功")
+        else:
+            await update.message.reply_text("😔 NIAO 这次没想好说什么～ 再鸟我一次嘛！")
+
     except Exception as e:
-        logger.error(f"[NIAO] 失败: {e}")
-        await update.message.reply_text("❌ NIAO 刚才卡住了～ 请再说一次！")
+        logger.error(f"[NIAO] 生成失败: {type(e).__name__} - {str(e)}")
+        await update.message.reply_text("❌ NIAO 刚才卡住了～ 再试一次吧！")
 
 async def ai_button(update: Update, context: ContextTypes.DEFAULT_TYPE):
     await update.callback_query.answer()
     await update.callback_query.edit_message_text(
-        "💬 **NIAO 聊天模式已开启**\n\n直接发消息给我即可～\n输入 /back 返回牧场",
+        "💬 **NIAO 聊天已开启**\n\n直接发消息给我即可～\n输入 /back 返回牧场",
         parse_mode='Markdown'
     )
 
@@ -363,7 +391,12 @@ def main():
     app.add_handler(CommandHandler("back", back_to_farm))
 
     app.add_handler(CallbackQueryHandler(button_handler))
-    app.add_handler(MessageHandler(filters.TEXT & ~filters.COMMAND & filters.ChatType.PRIVATE, ai_response))
+    
+    # 私聊 AI 聊天
+    app.add_handler(MessageHandler(
+        filters.TEXT & ~filters.COMMAND & filters.ChatType.PRIVATE, 
+        ai_response
+    ))
 
     logger.info("🚀 飞鸟牧场 + NIAO 完整版启动成功！")
     app.run_polling(drop_pending_updates=True)
