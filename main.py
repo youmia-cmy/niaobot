@@ -12,7 +12,7 @@ from telegram.ext import (
     ContextTypes, ChatMemberHandler, MessageHandler, filters
 )
 
-# ====================== 日志配置 ======================
+# ====================== 日志 ======================
 logging.basicConfig(format='%(asctime)s - %(name)s - %(levelname)s - %(message)s', level=logging.INFO)
 logger = logging.getLogger(__name__)
 
@@ -167,30 +167,34 @@ async def delete_later(context: ContextTypes.DEFAULT_TYPE):
     except:
         pass
 
-# ====================== NIAO AI（核心修复） ======================
+# ====================== NIAO AI ======================
 async def ai_response(update: Update, context: ContextTypes.DEFAULT_TYPE):
     if not model:
         await update.message.reply_text("❌ NIAO 未启用")
         return
-
     text = update.message.text.strip()
     if not text:
         return
-
-    logger.info(f"[NIAO] 收到私聊消息: {text}")
+    logger.info(f"[NIAO] 收到消息: {text}")
     await update.message.chat.send_action("typing")
-
     try:
         prompt = f"""你叫 NIAO，是飞鸟牧场可爱幽默的专属AI助手。
-只回复纯文字，经常自称“NIAO”，语气活泼可爱。
+只回复纯文字，经常自称“NIAO”，语气活泼。
 用户说：{text}"""
         response = model.generate_content(prompt)
         reply = response.text.strip()[:4000]
         await update.message.reply_text(reply)
         logger.info("[NIAO] 回复成功")
     except Exception as e:
-        logger.error(f"[NIAO] 调用失败: {e}")
+        logger.error(f"[NIAO] 失败: {e}")
         await update.message.reply_text("❌ NIAO 刚才卡住了～ 请再说一次！")
+
+async def ai_button(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    await update.callback_query.answer()
+    await update.callback_query.edit_message_text(
+        "💬 **NIAO 聊天模式已开启**\n\n直接发消息给我即可～\n输入 /back 返回牧场",
+        parse_mode='Markdown'
+    )
 
 # ====================== 群聊经验 ======================
 async def group_chat_exp(update: Update, context: ContextTypes.DEFAULT_TYPE):
@@ -291,14 +295,51 @@ async def button_handler(update: Update, context: ContextTypes.DEFAULT_TYPE):
     if data not in ["pk_menu", "pk_random", "pk_target", "daily_checkin", "ai_chat"]:
         await send_panel(update, edit=True)
 
-async def ai_button(update: Update, context: ContextTypes.DEFAULT_TYPE):
-    await update.callback_query.answer()
-    await update.callback_query.edit_message_text(
-        "💬 **NIAO 聊天模式已开启**\n\n"
-        "直接发消息给我即可～\n"
-        "输入 /back 返回牧场",
-        parse_mode='Markdown'
-    )
+# ====================== 命令 ======================
+async def start(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    get_user_data(update.effective_user.id, update.effective_user)
+    await update.message.reply_text("🎉 欢迎来到飞鸟牧场！\n我是 **NIAO**～")
+    await send_panel(update)
+
+async def back_to_farm(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    await send_panel(update)
+
+async def rank(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    if not user_data:
+        await update.message.reply_text("🏆 目前还没有玩家上榜")
+        return
+    sorted_users = sorted(user_data.items(), key=lambda x: calculate_combat(x[1]), reverse=True)[:10]
+    text = "🏆 **飞鸟牧场战斗力排行榜** 🏆\n\n"
+    for i, (uid, d) in enumerate(sorted_users, 1):
+        nickname = d.get("nickname", f"用户{uid[-4:]}")
+        combat = calculate_combat(d)
+        text += f"{i}. **{nickname}** — ⚔️ {combat} 战斗力（{d.get('level',1)}级）\n"
+    await update.message.reply_text(text, parse_mode='Markdown')
+
+async def checkin_cmd(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    user = get_user_data(update.effective_user.id, update.effective_user)
+    today = str(date.today())
+    if user.get("last_checkin") == today:
+        await update.message.reply_text("❌ 你今天已经签到过了")
+        return
+    user["last_checkin"] = today
+    leveled = add_exp(update.effective_user.id, 50)
+    await update.message.reply_text("✅ 签到成功！\n+50 经验")
+    if leveled:
+        await update.message.reply_text(f"🎉 升级了！当前 {user['level']} 级")
+    save_data()
+
+async def pk_command(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    user = get_user_data(update.effective_user.id, update.effective_user)
+    power1 = calculate_combat(user)
+    power2 = random.randint(max(30, power1 - 120), power1 + 200)
+    if power1 > power2:
+        result = "🎉 你赢了！+80 经验"
+        add_exp(update.effective_user.id, 80)
+    else:
+        result = "😔 你输了"
+    await update.message.reply_text(f"⚔️ **随机PK**\n你的战力：**{power1}**\n对手战力：**{power2}**\n\n{result}", parse_mode='Markdown')
+    save_data()
 
 # ====================== 主函数 ======================
 def main():
