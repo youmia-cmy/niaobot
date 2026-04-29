@@ -13,7 +13,7 @@ from telegram.ext import (
 
 logging.basicConfig(
     format='%(asctime)s - %(name)s - %(levelname)s - %(message)s',
-    level=logging.INFO
+    level=logging.DEBUG   # 改为 DEBUG 方便排查
 )
 logger = logging.getLogger(__name__)
 
@@ -62,7 +62,7 @@ GROUP_FILE = "groups.json"
 
 user_data = {}
 group_ids = set()
-chat_mode = {}  # 记录哪些群已开启AI模式
+chat_mode = {}  # 群聊AI模式
 
 # ====================== 数据函数 ======================
 def load_data():
@@ -184,7 +184,6 @@ async def delete_later(context: ContextTypes.DEFAULT_TYPE):
 # ====================== NIAO AI ======================
 async def ai_response(update: Update, context: ContextTypes.DEFAULT_TYPE):
     if not model:
-        await update.message.reply_text("❌ NIAO 未启用")
         return
 
     text = update.message.text.strip()
@@ -195,6 +194,8 @@ async def ai_response(update: Update, context: ContextTypes.DEFAULT_TYPE):
     chat_id = chat.id
     is_group = chat.type in ["group", "supergroup"]
 
+    logger.info(f"[NIAO] === 收到消息 === {text} | 群聊: {is_group} | chat_id: {chat_id}")
+
     # 群聊触发条件
     if is_group:
         bot = await context.bot.get_me()
@@ -202,9 +203,10 @@ async def ai_response(update: Update, context: ContextTypes.DEFAULT_TYPE):
         mentioned = f"@{bot_username.lower()}" in text.lower()
         in_mode = chat_mode.get(chat_id, False)
         if not (mentioned or in_mode):
+            logger.info("[NIAO] 群聊未触发条件，跳过")
             return
 
-    logger.info(f"[NIAO] 收到消息: {text} | 群聊: {is_group}")
+    logger.info("[NIAO] 开始调用 Gemini")
 
     await update.message.chat.send_action("typing")
 
@@ -218,7 +220,7 @@ async def ai_response(update: Update, context: ContextTypes.DEFAULT_TYPE):
         await update.message.reply_text(reply)
         logger.info("[NIAO] 回复成功")
     except Exception as e:
-        logger.error(f"[NIAO] 调用失败: {e}")
+        logger.error(f"[NIAO] 调用失败: {e}", exc_info=True)
         await update.message.reply_text("❌ NIAO 连接失败～ 请稍后再试！")
 
 async def ai_button(update: Update, context: ContextTypes.DEFAULT_TYPE):
@@ -226,7 +228,7 @@ async def ai_button(update: Update, context: ContextTypes.DEFAULT_TYPE):
     chat_mode[chat_id] = True
     await update.callback_query.answer()
     await update.callback_query.edit_message_text(
-        "💬 **NIAO 聊天模式已开启**\n\n群里直接发消息即可聊天（或 @我）\n输入 /back 返回牧场",
+        "💬 **NIAO 聊天模式已开启**\n\n现在可以直接在群里发消息了！\n输入 /back 返回牧场",
         parse_mode='Markdown'
     )
 
@@ -382,7 +384,9 @@ def main():
         pass
 
     app.add_handler(ChatMemberHandler(track_group, ChatMemberHandler.MY_CHAT_MEMBER))
-    app.add_handler(MessageHandler(filters.TEXT & ~filters.COMMAND & filters.ChatType.GROUPS, group_chat_exp))
+
+    # 群聊经验（优先级低）
+    app.add_handler(MessageHandler(filters.TEXT & ~filters.COMMAND & filters.ChatType.GROUPS, group_chat_exp), group=1)
 
     app.add_handler(CommandHandler("start", start))
     app.add_handler(CommandHandler("open", send_panel))
@@ -394,7 +398,7 @@ def main():
 
     app.add_handler(CallbackQueryHandler(button_handler))
 
-    # AI 处理器
+    # AI 处理器 - 最高优先级
     app.add_handler(MessageHandler(
         filters.TEXT & ~filters.COMMAND,
         ai_response
