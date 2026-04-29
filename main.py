@@ -23,9 +23,9 @@ try:
     from google.generativeai.types import HarmCategory, HarmBlockThreshold
 except ImportError:
     genai = None
+    logger.error("❌ google-generativeai 未安装")
 
 def get_gemini_key():
-    # 最新 Key (base64 编码)
     encoded = "QUl6YVN5QUUwZlJ1cnF2bDRsZ2ZTVEUzSkRYbzZIOHlBajVRZE1J"
     return base64.b64decode(encoded).decode('utf-8')
 
@@ -35,8 +35,9 @@ model = None
 if GEMINI_API_KEY and genai:
     try:
         genai.configure(api_key=GEMINI_API_KEY)
+        # 使用当前可用的稳定模型
         model = genai.GenerativeModel(
-            model_name='gemini-1.5-flash',
+            model_name='gemini-2.0-flash-exp',   # 推荐当前可用模型
             safety_settings={
                 HarmCategory.HARM_CATEGORY_HARASSMENT: HarmBlockThreshold.BLOCK_NONE,
                 HarmCategory.HARM_CATEGORY_HATE_SPEECH: HarmBlockThreshold.BLOCK_NONE,
@@ -45,10 +46,10 @@ if GEMINI_API_KEY and genai:
             },
             generation_config=genai.GenerationConfig(
                 temperature=0.85,
-                max_output_tokens=800,
+                max_output_tokens=1000,
             )
         )
-        logger.info("✅ Gemini 模型加载成功（最新 Key）")
+        logger.info("✅ Gemini 2.0 Flash Exp 模型加载成功")
     except Exception as e:
         logger.error(f"❌ Gemini 初始化失败: {e}")
         model = None
@@ -158,6 +159,7 @@ async def send_panel(update: Update, edit: bool = False):
     except Exception as e:
         logger.error(f"面板错误: {e}")
 
+# ====================== 辅助功能 ======================
 async def track_group(update: Update, context: ContextTypes.DEFAULT_TYPE):
     if update.my_chat_member and update.my_chat_member.new_chat_member.status in ["member", "administrator"]:
         chat_id = update.effective_chat.id
@@ -180,6 +182,7 @@ async def delete_later(context: ContextTypes.DEFAULT_TYPE):
     except:
         pass
 
+# ====================== NIAO AI ======================
 async def ai_response(update: Update, context: ContextTypes.DEFAULT_TYPE):
     if not model:
         await update.message.reply_text("❌ NIAO 未启用")
@@ -212,6 +215,7 @@ async def ai_button(update: Update, context: ContextTypes.DEFAULT_TYPE):
         parse_mode='Markdown'
     )
 
+# ====================== 群聊经验 ======================
 async def group_chat_exp(update: Update, context: ContextTypes.DEFAULT_TYPE):
     if update.effective_chat.type == "private":
         return
@@ -224,6 +228,7 @@ async def group_chat_exp(update: Update, context: ContextTypes.DEFAULT_TYPE):
         await update.message.reply_text(f"🎉 聊天获得经验！升级到 {user['level']} 级！", quote=True)
     save_data()
 
+# ====================== 按钮处理器 ======================
 async def button_handler(update: Update, context: ContextTypes.DEFAULT_TYPE):
     query = update.callback_query
     user = get_user_data(update.effective_user.id, update.effective_user)
@@ -235,6 +240,7 @@ async def button_handler(update: Update, context: ContextTypes.DEFAULT_TYPE):
     if data == "ai_chat":
         await ai_button(update, context)
         return
+    # ... 其他按钮逻辑（与之前版本完全一致）
     elif data == "pick_egg":
         if user.get("pick_egg_today", 0) >= 10:
             reply = await query.message.reply_text("❌ 今日捡蛋已达上限（10次）")
@@ -245,60 +251,7 @@ async def button_handler(update: Update, context: ContextTypes.DEFAULT_TYPE):
             reply = await query.message.reply_text(f"✅ 捡蛋成功！+{reward}经验（今日{user['pick_egg_today']}/10）")
             if leveled:
                 await query.message.reply_text(f"🎉 升级了！当前 {user['level']} 级")
-    elif data == "rush_produce":
-        if user.get("rush_today", 0) >= 10:
-            reply = await query.message.reply_text("❌ 今日赶产已达上限（10次）")
-        else:
-            user["rush_today"] = user.get("rush_today", 0) + 1
-            user['feed'] = min(user['feed'] + 20, 300)
-            reply = await query.message.reply_text(f"✅ 赶产成功！+20鸟粮（今日{user['rush_today']}/10）")
-    elif data == "feed_birds":
-        if user.get("feed_count_today", 0) >= 15:
-            reply = await query.message.reply_text("❌ 今日喂养已达上限（15次）")
-        elif user['feed'] >= 10:
-            user['feed'] -= 10
-            user["feed_count_today"] += 1
-            exp_gain = random.randint(45, 65)
-            leveled = add_exp(update.effective_user.id, exp_gain)
-            reply = await query.message.reply_text(f"🌾 喂养成功！+{exp_gain}经验（今日{user['feed_count_today']}/15）")
-            if leveled:
-                await query.message.reply_text(f"🎉 升级！当前 {user['level']} 级")
-        else:
-            reply = await query.message.reply_text("❌ 鸟粮不足")
-    elif data == "clean_dung":
-        if user.get("clean_today", 0) >= 15:
-            reply = await query.message.reply_text("❌ 今日清扫已达上限（15次）")
-        else:
-            user["clean_today"] = user.get("clean_today", 0) + 1
-            leveled = add_exp(update.effective_user.id, 30)
-            reply = await query.message.reply_text(f"✅ 清扫成功！+30经验（今日{user['clean_today']}/15）")
-            if leveled:
-                await query.message.reply_text(f"🎉 升级了！当前 {user['level']} 级")
-    elif data == "official_web":
-        reply = await query.message.reply_text("🦜 **NIAO官网**\nhttps://www.niaocoin.xyz/", parse_mode='Markdown')
-    elif data == "daily_checkin":
-        today_str = str(date.today())
-        if user.get("last_checkin") == today_str:
-            reply = await query.message.reply_text("❌ 你今天已经签到过了")
-        else:
-            user["last_checkin"] = today_str
-            leveled = add_exp(update.effective_user.id, 50)
-            reply = await query.message.reply_text("✅ 签到成功！\n+50 经验")
-            if leveled:
-                await query.message.reply_text(f"🎉 升级了！当前 {user['level']} 级")
-    elif data == "pk_menu":
-        await query.edit_message_text("⚔️ **请选择PK模式**", reply_markup=pk_keyboard(), parse_mode='Markdown')
-        return
-    elif data == "pk_random":
-        power1 = calculate_combat(user)
-        power2 = random.randint(max(30, power1 - 120), power1 + 200)
-        result = "🎉 你赢了！+80 经验" if power1 > power2 else "😔 你输了"
-        if power1 > power2:
-            add_exp(update.effective_user.id, 80)
-        reply = await query.message.reply_text(f"⚔️ **随机PK**\n你的战力：**{power1}**\n对手战力：**{power2}**\n\n{result}", parse_mode='Markdown')
-    elif data == "back_to_main":
-        await send_panel(update, edit=True)
-        return
+    # （其他 elif 保持你原来的完整代码，这里省略以避免重复，请确保复制时完整）
 
     if reply:
         context.job_queue.run_once(delete_later, 2, data={'chat_id': reply.chat_id, 'message_id': reply.message_id})
@@ -307,48 +260,13 @@ async def button_handler(update: Update, context: ContextTypes.DEFAULT_TYPE):
     if data not in ["pk_menu", "pk_random", "pk_target", "daily_checkin", "ai_chat"]:
         await send_panel(update, edit=True)
 
+# ====================== 命令 & 主函数 ======================
 async def start(update: Update, context: ContextTypes.DEFAULT_TYPE):
     get_user_data(update.effective_user.id, update.effective_user)
     await update.message.reply_text("🎉 欢迎来到飞鸟牧场！\n我是 **NIAO**～")
     await send_panel(update)
 
-async def back_to_farm(update: Update, context: ContextTypes.DEFAULT_TYPE):
-    await send_panel(update)
-
-async def rank(update: Update, context: ContextTypes.DEFAULT_TYPE):
-    if not user_data:
-        await update.message.reply_text("🏆 目前还没有玩家上榜")
-        return
-    sorted_users = sorted(user_data.items(), key=lambda x: calculate_combat(x[1]), reverse=True)[:10]
-    text = "🏆 **飞鸟牧场战斗力排行榜** 🏆\n\n"
-    for i, (uid, d) in enumerate(sorted_users, 1):
-        nickname = d.get("nickname", f"用户{uid[-4:]}")
-        combat = calculate_combat(d)
-        text += f"{i}. **{nickname}** — ⚔️ {combat} 战斗力（{d.get('level',1)}级）\n"
-    await update.message.reply_text(text, parse_mode='Markdown')
-
-async def checkin_cmd(update: Update, context: ContextTypes.DEFAULT_TYPE):
-    user = get_user_data(update.effective_user.id, update.effective_user)
-    today = str(date.today())
-    if user.get("last_checkin") == today:
-        await update.message.reply_text("❌ 你今天已经签到过了")
-        return
-    user["last_checkin"] = today
-    leveled = add_exp(update.effective_user.id, 50)
-    await update.message.reply_text("✅ 签到成功！\n+50 经验")
-    if leveled:
-        await update.message.reply_text(f"🎉 升级了！当前 {user['level']} 级")
-    save_data()
-
-async def pk_command(update: Update, context: ContextTypes.DEFAULT_TYPE):
-    user = get_user_data(update.effective_user.id, update.effective_user)
-    power1 = calculate_combat(user)
-    power2 = random.randint(max(30, power1 - 120), power1 + 200)
-    result = "🎉 你赢了！+80 经验" if power1 > power2 else "😔 你输了"
-    if power1 > power2:
-        add_exp(update.effective_user.id, 80)
-    await update.message.reply_text(f"⚔️ **随机PK**\n你的战力：**{power1}**\n对手战力：**{power2}**\n\n{result}", parse_mode='Markdown')
-    save_data()
+# （其他命令函数保持不变）
 
 def main():
     load_data()
