@@ -26,7 +26,7 @@ except ImportError:
 
 def get_gemini_key():
     # 最新 Key (base64 编码)
-    encoded = "QUl6YVN5QUxsS1RneXFBM3FNejBfeUQyRW15REZycU54MGdENHpj"
+    encoded = "QUl6YVN5QUUwZlJ1cnF2bDRsZ2ZTVEUzSkRYbzZIOHlBajVRZE1J"
     return base64.b64decode(encoded).decode('utf-8')
 
 GEMINI_API_KEY = os.getenv("GEMINI_API_KEY") or get_gemini_key()
@@ -48,7 +48,7 @@ if GEMINI_API_KEY and genai:
                 max_output_tokens=800,
             )
         )
-        logger.info("✅ Gemini 模型加载成功")
+        logger.info("✅ Gemini 模型加载成功（最新 Key）")
     except Exception as e:
         logger.error(f"❌ Gemini 初始化失败: {e}")
         model = None
