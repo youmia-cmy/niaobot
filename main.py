@@ -35,7 +35,7 @@ if GEMINI_API_KEY and genai:
     try:
         genai.configure(api_key=GEMINI_API_KEY)
         model = genai.GenerativeModel(
-            model_name='gemini-3.1-pro-preview',   # ← 你界面上的模型
+            model_name='gemini-3-flash-preview',   # ← 你界面上显示的模型
             safety_settings={
                 HarmCategory.HARM_CATEGORY_HARASSMENT: HarmBlockThreshold.BLOCK_NONE,
                 HarmCategory.HARM_CATEGORY_HATE_SPEECH: HarmBlockThreshold.BLOCK_NONE,
@@ -47,7 +47,7 @@ if GEMINI_API_KEY and genai:
                 max_output_tokens=1000,
             )
         )
-        logger.info("✅ Gemini 3.1 Pro Preview 模型加载成功")
+        logger.info("✅ Gemini 3 Flash Preview 模型加载成功")
     except Exception as e:
         logger.error(f"❌ Gemini 初始化失败: {e}")
         model = None
