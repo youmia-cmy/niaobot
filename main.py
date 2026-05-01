@@ -95,7 +95,7 @@ def get_title(level: int) -> str:
         return "至尊鸟帝"
 
 def add_exp(user_id: int, amount: int):
-    """增加经验并处理升级（新规则）"""
+    """增加经验并处理升级"""
     user = get_user_data(user_id)
     user["exp"] += amount
     old_level = user["level"]
@@ -114,7 +114,7 @@ def add_exp(user_id: int, amount: int):
     return user["level"] > old_level
 
 def deduct_exp(user_id: int, amount: int):
-    """扣除经验并处理降级（最低保护1级）"""
+    """扣除经验并处理降级（最低1级）"""
     user = get_user_data(user_id)
     user["exp"] = max(0, int(user["exp"] - amount))
     old_level = user["level"]
@@ -170,29 +170,14 @@ async def send_panel(update: Update, edit: bool = False):
     except Exception as e:
         logger.error(f"面板错误: {e}")
 
-# ====================== 其他功能（保持不变） ======================
-async def track_group(update: Update, context: ContextTypes.DEFAULT_TYPE):
-    if update.my_chat_member and update.my_chat_member.new_chat_member.status in ["member", "administrator"]:
-        chat_id = update.effective_chat.id
-        if chat_id not in group_ids:
-            group_ids.add(chat_id)
-            save_data()
-            await context.bot.send_message(chat_id, "✅ 机器人已加入群组！")
-
-async def daily_checkin_notice(context: ContextTypes.DEFAULT_TYPE):
-    keyboard = InlineKeyboardMarkup([[InlineKeyboardButton("📅 立即签到", callback_data="daily_checkin")]])
-    for gid in list(group_ids):
-        try:
-            await context.bot.send_message(chat_id=gid, text="🌅 **新的一天开始了！**\n签到可获得 **50 经验**", reply_markup=keyboard, parse_mode='Markdown')
-        except:
-            pass
-
+# ====================== 自动删除消息 ======================
 async def delete_later(context: ContextTypes.DEFAULT_TYPE):
     try:
         await context.bot.delete_message(context.job.data['chat_id'], context.job.data['message_id'])
     except:
         pass
 
+# ====================== 群聊经验 ======================
 async def group_chat_exp(update: Update, context: ContextTypes.DEFAULT_TYPE):
     if update.effective_chat.type == "private":
         return
@@ -202,7 +187,8 @@ async def group_chat_exp(update: Update, context: ContextTypes.DEFAULT_TYPE):
     exp_gain = random.randint(1, 3)
     user["chat_exp_today"] += exp_gain
     if add_exp(update.effective_user.id, exp_gain):
-        await update.message.reply_text(f"🎉 聊天获得经验！升级到 {user['level']} 级！", quote=True)
+        msg = await update.message.reply_text(f"🎉 升级了！当前 {user['level']} 级 {get_title(user['level'])}", quote=True)
+        context.job_queue.run_once(delete_later, 2, data={'chat_id': msg.chat_id, 'message_id': msg.message_id})
     save_data()
 
 # ====================== 排行榜 ======================
@@ -275,9 +261,7 @@ async def pk_random_handler(update: Update, context: ContextTypes.DEFAULT_TYPE, 
 
         result_text = f"🎉 **胜利！** 你击败了 **{opponent_name}**！\n掠夺了 {exp_plunder} 经验和 {combat_plunder} 战斗力"
         if leveled_up:
-            result_text += f"\n🎉 你升级到了 {user['level']} 级！"
-        if leveled_down:
-            result_text += f"\n⚠️ 对手等级下降了！"
+            result_text += f"\n🎉 你升级到了 {user['level']} 级 {get_title(user['level'])}！"
     else:
         result_text = f"😔 **失败...** 对手 **{opponent_name}** 战力更高"
 
@@ -310,9 +294,7 @@ async def pk_target_fight(update: Update, user, target_id: int):
 
         result = f"🎉 胜利！你掠夺了 {exp_plunder} 经验和 {combat_plunder} 战斗力"
         if leveled_up:
-            result += f"\n🎉 你升级到了 {user['level']} 级！"
-        if leveled_down:
-            result += f"\n⚠️ 对手等级下降了！"
+            result += f"\n🎉 你升级到了 {user['level']} 级 {get_title(user['level'])}！"
     else:
         result = "😔 失败，对手战力更高"
 
@@ -358,6 +340,7 @@ async def button_handler(update: Update, context: ContextTypes.DEFAULT_TYPE):
         return
 
     reply = None
+    upgrade_msg = None
 
     if data == "pick_egg":
         if user.get("pick_egg_today", 0) >= 10:
@@ -368,7 +351,7 @@ async def button_handler(update: Update, context: ContextTypes.DEFAULT_TYPE):
             leveled = add_exp(update.effective_user.id, reward)
             reply = await query.message.reply_text(f"✅ 捡蛋成功！+{reward}经验（今日{user['pick_egg_today']}/10）")
             if leveled:
-                await query.message.reply_text(f"🎉 升级了！当前 {user['level']} 级 {get_title(user['level'])}")
+                upgrade_msg = await query.message.reply_text(f"🎉 升级了！当前 {user['level']} 级 {get_title(user['level'])}")
 
     elif data == "rush_produce":
         if user.get("rush_today", 0) >= 10:
@@ -388,7 +371,7 @@ async def button_handler(update: Update, context: ContextTypes.DEFAULT_TYPE):
             leveled = add_exp(update.effective_user.id, exp_gain)
             reply = await query.message.reply_text(f"🌾 喂养成功！+{exp_gain}经验（今日{user['feed_count_today']}/15）")
             if leveled:
-                await query.message.reply_text(f"🎉 升级！当前 {user['level']} 级 {get_title(user['level'])}")
+                upgrade_msg = await query.message.reply_text(f"🎉 升级了！当前 {user['level']} 级 {get_title(user['level'])}")
         else:
             reply = await query.message.reply_text("❌ 鸟粮不足")
 
@@ -400,10 +383,11 @@ async def button_handler(update: Update, context: ContextTypes.DEFAULT_TYPE):
             leveled = add_exp(update.effective_user.id, 30)
             reply = await query.message.reply_text(f"✅ 清扫成功！+30经验（今日{user['clean_today']}/15）")
             if leveled:
-                await query.message.reply_text(f"🎉 升级了！当前 {user['level']} 级 {get_title(user['level'])}")
+                upgrade_msg = await query.message.reply_text(f"🎉 升级了！当前 {user['level']} 级 {get_title(user['level'])}")
 
     elif data == "official_web":
-        reply = await query.message.reply_text("🦜 **NIAO官网**\nhttps://www.niaocoin.xyz/", parse_mode='Markdown')
+        # 官网消息永久保留，不删除
+        await query.message.reply_text("🐦 **NIAO官网**\nhttps://www.niaocoin.xyz/", parse_mode='Markdown')
 
     elif data == "daily_checkin":
         today_str = str(date.today())
@@ -414,10 +398,15 @@ async def button_handler(update: Update, context: ContextTypes.DEFAULT_TYPE):
             leveled = add_exp(update.effective_user.id, 50)
             reply = await query.message.reply_text("✅ 签到成功！\n+50 经验")
             if leveled:
-                await query.message.reply_text(f"🎉 升级了！当前 {user['level']} 级 {get_title(user['level'])}")
+                upgrade_msg = await query.message.reply_text(f"🎉 升级了！当前 {user['level']} 级 {get_title(user['level'])}")
 
+    # 删除普通操作消息
     if reply:
         context.job_queue.run_once(delete_later, 2, data={'chat_id': reply.chat_id, 'message_id': reply.message_id})
+    
+    # 删除升级消息
+    if upgrade_msg:
+        context.job_queue.run_once(delete_later, 2, data={'chat_id': upgrade_msg.chat_id, 'message_id': upgrade_msg.message_id})
 
     save_data()
     if data not in ["pk_menu", "pk_random", "pk_target", "daily_checkin", "back_to_main"] and not data.startswith("rank_page_"):
@@ -445,7 +434,8 @@ async def checkin_cmd(update: Update, context: ContextTypes.DEFAULT_TYPE):
     leveled = add_exp(update.effective_user.id, 50)
     await update.message.reply_text("✅ 签到成功！\n+50 经验")
     if leveled:
-        await update.message.reply_text(f"🎉 升级了！当前 {user['level']} 级 {get_title(user['level'])}")
+        msg = await update.message.reply_text(f"🎉 升级了！当前 {user['level']} 级 {get_title(user['level'])}")
+        context.job_queue.run_once(delete_later, 2, data={'chat_id': msg.chat_id, 'message_id': msg.message_id})
     save_data()
 
 async def pk_command(update: Update, context: ContextTypes.DEFAULT_TYPE):
@@ -481,7 +471,7 @@ def main():
 
     app.add_handler(CallbackQueryHandler(button_handler))
 
-    logger.info("🚀 飞鸟牧场 Bot 启动成功！（完整版 - 新经验规则 + 称号 + 等级可降）")
+    logger.info("🚀 飞鸟牧场 Bot 启动成功！（官网消息永久保留 + 升级消息2秒自动删除）")
     app.run_polling(drop_pending_updates=True)
 
 if __name__ == '__main__':
