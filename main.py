@@ -73,19 +73,64 @@ def get_user_data(user_id: int, effective_user=None):
         user_data[uid]["nickname"] = effective_user.full_name or effective_user.first_name or f"用户{uid[-4:]}"
     return user_data[uid]
 
+def get_title(level: int) -> str:
+    """获取等级称号"""
+    if 1 <= level <= 9:
+        return "菜鸟"
+    elif 10 <= level <= 30:
+        return "银鸟"
+    elif 31 <= level <= 40:
+        return "金鸟"
+    elif 41 <= level <= 50:
+        return "钛合金鸟"
+    elif 51 <= level <= 60:
+        return "乌金鸟"
+    elif 61 <= level <= 70:
+        return "鸟王"
+    elif 71 <= level <= 80:
+        return "鸟神"
+    elif 81 <= level <= 90:
+        return "鸟帝"
+    else:
+        return "至尊鸟帝"
+
 def add_exp(user_id: int, amount: int):
+    """增加经验并处理升级（新规则）"""
     user = get_user_data(user_id)
     user["exp"] += amount
     old_level = user["level"]
-    LEVELS = [0] + [int(100 * (i ** 1.6)) for i in range(1, 100)]
-    while user["level"] < 99 and user["exp"] >= LEVELS[user["level"]]:
+    
+    def get_exp_required(lv: int) -> int:
+        return 500 * lv * (lv + 1) // 2
+    
+    while user["level"] < 99 and user["exp"] >= get_exp_required(user["level"]):
         user["level"] += 1
         user["combat"] *= 2
         user["stamina"] += 25
         user["strength"] += 15
         user["intelligence"] += 15
         user["agility"] += 15
+    
     return user["level"] > old_level
+
+def deduct_exp(user_id: int, amount: int):
+    """扣除经验并处理降级（最低保护1级）"""
+    user = get_user_data(user_id)
+    user["exp"] = max(0, int(user["exp"] - amount))
+    old_level = user["level"]
+    
+    def get_exp_required(lv: int) -> int:
+        return 500 * lv * (lv + 1) // 2
+
+    while user["level"] > 1 and user["exp"] < get_exp_required(user["level"] - 1):
+        user["level"] -= 1
+        user["combat"] = max(100, int(user["combat"] / 2))
+        user["stamina"] = max(0, user["stamina"] - 25)
+        user["strength"] = max(0, user["strength"] - 15)
+        user["intelligence"] = max(0, user["intelligence"] - 15)
+        user["agility"] = max(0, user["agility"] - 15)
+
+    return user["level"] < old_level
 
 def calculate_combat(user):
     if user["birds"] == 0:
@@ -112,7 +157,10 @@ def pk_keyboard():
 async def send_panel(update: Update, edit: bool = False):
     user = get_user_data(update.effective_user.id, update.effective_user)
     combat = calculate_combat(user)
-    text = f"🦜 **飞鸟牧场**（{user['level']}级）\n🌾 鸟粮：{user['feed']}\n🦜 鹦鹉：{user['birds']} 只  |  ⚔️ 战斗力：{combat}\n⭐ 经验：{user['exp']}"
+    title = get_title(user['level'])
+    
+    text = f"🦜 **飞鸟牧场**（{user['level']}级 {title}）\n🌾 鸟粮：{user['feed']}\n🦜 鹦鹉：{user['birds']} 只  |  ⚔️ 战斗力：{combat}\n⭐ 经验：{user['exp']}"
+    
     markup = build_keyboard()
     try:
         if edit and update.callback_query:
@@ -122,6 +170,7 @@ async def send_panel(update: Update, edit: bool = False):
     except Exception as e:
         logger.error(f"面板错误: {e}")
 
+# ====================== 其他功能（保持不变） ======================
 async def track_group(update: Update, context: ContextTypes.DEFAULT_TYPE):
     if update.my_chat_member and update.my_chat_member.new_chat_member.status in ["member", "administrator"]:
         chat_id = update.effective_chat.id
@@ -144,7 +193,6 @@ async def delete_later(context: ContextTypes.DEFAULT_TYPE):
     except:
         pass
 
-# ====================== 群聊经验 ======================
 async def group_chat_exp(update: Update, context: ContextTypes.DEFAULT_TYPE):
     if update.effective_chat.type == "private":
         return
@@ -157,7 +205,7 @@ async def group_chat_exp(update: Update, context: ContextTypes.DEFAULT_TYPE):
         await update.message.reply_text(f"🎉 聊天获得经验！升级到 {user['level']} 级！", quote=True)
     save_data()
 
-# ====================== 排行榜（分页，每页10人） ======================
+# ====================== 排行榜 ======================
 async def show_rank(update: Update, context: ContextTypes.DEFAULT_TYPE, page: int = 0):
     if not user_data:
         await (update.callback_query.message.reply_text if update.callback_query else update.message.reply_text)("🏆 目前还没有玩家")
@@ -176,7 +224,8 @@ async def show_rank(update: Update, context: ContextTypes.DEFAULT_TYPE, page: in
     for i, (uid, d) in enumerate(page_users, start + 1):
         nickname = d.get("nickname", f"用户{uid[-4:]}")
         combat = calculate_combat(d)
-        text += f"`{i:2d}.` **{nickname}** — ⚔️ {combat}（{d.get('level',1)}级）\n"
+        title = get_title(d.get('level', 1))
+        text += f"`{i:2d}.` **{nickname}** — {d.get('level',1)}级{title} ⚔️ {combat}\n"
 
     buttons = []
     row = []
@@ -215,13 +264,20 @@ async def pk_random_handler(update: Update, context: ContextTypes.DEFAULT_TYPE, 
     opponent_name = opponent.get("nickname", f"玩家{opponent_id[-4:]}")
 
     if my_power > opponent_power:
-        exp_gain = int(opponent["exp"] * 0.05)
-        combat_gain = int(opponent_power * 0.05)
-        user["exp"] += exp_gain
-        user["combat"] += combat_gain
-        opponent["exp"] = int(opponent["exp"] * 0.95)
-        opponent["combat"] = int(opponent["combat"] * 0.95)
-        result_text = f"🎉 **胜利！** 你击败了 **{opponent_name}**！\n掠夺了 {exp_gain} 经验和 {combat_gain} 战斗力"
+        exp_plunder = int(opponent["exp"] * 0.05)
+        combat_plunder = int(opponent_power * 0.05)
+
+        leveled_up = add_exp(update.effective_user.id, exp_plunder)
+        user["combat"] += combat_plunder
+
+        leveled_down = deduct_exp(int(opponent_id), exp_plunder)
+        opponent["combat"] = max(100, int(opponent["combat"] - combat_plunder))
+
+        result_text = f"🎉 **胜利！** 你击败了 **{opponent_name}**！\n掠夺了 {exp_plunder} 经验和 {combat_plunder} 战斗力"
+        if leveled_up:
+            result_text += f"\n🎉 你升级到了 {user['level']} 级！"
+        if leveled_down:
+            result_text += f"\n⚠️ 对手等级下降了！"
     else:
         result_text = f"😔 **失败...** 对手 **{opponent_name}** 战力更高"
 
@@ -243,13 +299,20 @@ async def pk_target_fight(update: Update, user, target_id: int):
     target_name = target.get("nickname", f"玩家{str(target_id)[-4:]}")
 
     if my_power > target_power:
-        exp_gain = int(target["exp"] * 0.05)
-        combat_gain = int(target_power * 0.05)
-        user["exp"] += exp_gain
-        user["combat"] += combat_gain
-        target["exp"] = int(target["exp"] * 0.95)
-        target["combat"] = int(target["combat"] * 0.95)
-        result = f"🎉 胜利！你掠夺了 {exp_gain} 经验和 {combat_gain} 战斗力"
+        exp_plunder = int(target["exp"] * 0.05)
+        combat_plunder = int(target_power * 0.05)
+
+        leveled_up = add_exp(update.effective_user.id, exp_plunder)
+        user["combat"] += combat_plunder
+
+        leveled_down = deduct_exp(target_id, exp_plunder)
+        target["combat"] = max(100, int(target["combat"] - combat_plunder))
+
+        result = f"🎉 胜利！你掠夺了 {exp_plunder} 经验和 {combat_plunder} 战斗力"
+        if leveled_up:
+            result += f"\n🎉 你升级到了 {user['level']} 级！"
+        if leveled_down:
+            result += f"\n⚠️ 对手等级下降了！"
     else:
         result = "😔 失败，对手战力更高"
 
@@ -305,7 +368,7 @@ async def button_handler(update: Update, context: ContextTypes.DEFAULT_TYPE):
             leveled = add_exp(update.effective_user.id, reward)
             reply = await query.message.reply_text(f"✅ 捡蛋成功！+{reward}经验（今日{user['pick_egg_today']}/10）")
             if leveled:
-                await query.message.reply_text(f"🎉 升级了！当前 {user['level']} 级")
+                await query.message.reply_text(f"🎉 升级了！当前 {user['level']} 级 {get_title(user['level'])}")
 
     elif data == "rush_produce":
         if user.get("rush_today", 0) >= 10:
@@ -325,7 +388,7 @@ async def button_handler(update: Update, context: ContextTypes.DEFAULT_TYPE):
             leveled = add_exp(update.effective_user.id, exp_gain)
             reply = await query.message.reply_text(f"🌾 喂养成功！+{exp_gain}经验（今日{user['feed_count_today']}/15）")
             if leveled:
-                await query.message.reply_text(f"🎉 升级！当前 {user['level']} 级")
+                await query.message.reply_text(f"🎉 升级！当前 {user['level']} 级 {get_title(user['level'])}")
         else:
             reply = await query.message.reply_text("❌ 鸟粮不足")
 
@@ -337,7 +400,7 @@ async def button_handler(update: Update, context: ContextTypes.DEFAULT_TYPE):
             leveled = add_exp(update.effective_user.id, 30)
             reply = await query.message.reply_text(f"✅ 清扫成功！+30经验（今日{user['clean_today']}/15）")
             if leveled:
-                await query.message.reply_text(f"🎉 升级了！当前 {user['level']} 级")
+                await query.message.reply_text(f"🎉 升级了！当前 {user['level']} 级 {get_title(user['level'])}")
 
     elif data == "official_web":
         reply = await query.message.reply_text("🦜 **NIAO官网**\nhttps://www.niaocoin.xyz/", parse_mode='Markdown')
@@ -351,7 +414,7 @@ async def button_handler(update: Update, context: ContextTypes.DEFAULT_TYPE):
             leveled = add_exp(update.effective_user.id, 50)
             reply = await query.message.reply_text("✅ 签到成功！\n+50 经验")
             if leveled:
-                await query.message.reply_text(f"🎉 升级了！当前 {user['level']} 级")
+                await query.message.reply_text(f"🎉 升级了！当前 {user['level']} 级 {get_title(user['level'])}")
 
     if reply:
         context.job_queue.run_once(delete_later, 2, data={'chat_id': reply.chat_id, 'message_id': reply.message_id})
@@ -382,7 +445,7 @@ async def checkin_cmd(update: Update, context: ContextTypes.DEFAULT_TYPE):
     leveled = add_exp(update.effective_user.id, 50)
     await update.message.reply_text("✅ 签到成功！\n+50 经验")
     if leveled:
-        await update.message.reply_text(f"🎉 升级了！当前 {user['level']} 级")
+        await update.message.reply_text(f"🎉 升级了！当前 {user['level']} 级 {get_title(user['level'])}")
     save_data()
 
 async def pk_command(update: Update, context: ContextTypes.DEFAULT_TYPE):
@@ -418,7 +481,7 @@ def main():
 
     app.add_handler(CallbackQueryHandler(button_handler))
 
-    logger.info("🚀 飞鸟牧场 Bot 启动成功！（完整版 - 真实PK + 分页排行榜）")
+    logger.info("🚀 飞鸟牧场 Bot 启动成功！（完整版 - 新经验规则 + 称号 + 等级可降）")
     app.run_polling(drop_pending_updates=True)
 
 if __name__ == '__main__':
