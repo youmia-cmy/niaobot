@@ -401,7 +401,7 @@ async def button_handler(update: Update, context: ContextTypes.DEFAULT_TYPE):
                 upgrade_msg = await query.message.reply_text(f"🎉 升级了！当前 {user['level']} 级 {get_title(user['level'])}")
 
     elif data == "official_web":
-        await query.message.reply_text("🐦 **NIAO官网**\nhttps://www.niaocoin.xyz/", parse_mode='Markdown')
+        await query.message.reply_text("🦜 **NIAO官网**\nhttps://www.niaocoin.xyz/", parse_mode='Markdown')
 
     elif data == "daily_checkin":
         today_str = str(date.today())
