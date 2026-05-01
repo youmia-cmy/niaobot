@@ -2,7 +2,6 @@ import logging
 import os
 import json
 import random
-import base64
 from datetime import date, time
 
 from telegram import Update, InlineKeyboardButton, InlineKeyboardMarkup
@@ -13,44 +12,9 @@ from telegram.ext import (
 
 logging.basicConfig(
     format='%(asctime)s - %(name)s - %(levelname)s - %(message)s',
-    level=logging.DEBUG   # 改为 DEBUG 方便排查
+    level=logging.DEBUG
 )
 logger = logging.getLogger(__name__)
-
-# ====================== Gemini AI ======================
-try:
-    import google.generativeai as genai
-    from google.generativeai.types import HarmCategory, HarmBlockThreshold
-except ImportError:
-    genai = None
-
-def get_gemini_key():
-    encoded = "QUl6YVN5QUUwZlJ1cnF2bDRsZ2ZTVEUzSkRYbzZIOHlBajVRZE1J"
-    return base64.b64decode(encoded).decode('utf-8')
-
-GEMINI_API_KEY = os.getenv("GEMINI_API_KEY") or get_gemini_key()
-
-model = None
-if GEMINI_API_KEY and genai:
-    try:
-        genai.configure(api_key=GEMINI_API_KEY)
-        model = genai.GenerativeModel(
-            model_name='gemini-3-flash-preview',
-            safety_settings={
-                HarmCategory.HARM_CATEGORY_HARASSMENT: HarmBlockThreshold.BLOCK_NONE,
-                HarmCategory.HARM_CATEGORY_HATE_SPEECH: HarmBlockThreshold.BLOCK_NONE,
-                HarmCategory.HARM_CATEGORY_SEXUALLY_EXPLICIT: HarmBlockThreshold.BLOCK_NONE,
-                HarmCategory.HARM_CATEGORY_DANGEROUS_CONTENT: HarmBlockThreshold.BLOCK_NONE,
-            },
-            generation_config=genai.GenerationConfig(
-                temperature=0.85,
-                max_output_tokens=1000,
-            )
-        )
-        logger.info("✅ Gemini 3 Flash Preview 模型加载成功")
-    except Exception as e:
-        logger.error(f"❌ Gemini 初始化失败: {e}")
-        model = None
 
 # ====================== 配置 ======================
 TOKEN = os.getenv("TELEGRAM_BOT_TOKEN")
@@ -62,7 +26,6 @@ GROUP_FILE = "groups.json"
 
 user_data = {}
 group_ids = set()
-chat_mode = {}  # 群聊AI模式
 
 # ====================== 数据函数 ======================
 def load_data():
@@ -135,7 +98,7 @@ def build_keyboard():
     return InlineKeyboardMarkup([
         [InlineKeyboardButton("🥚 捡蛋", callback_data="pick_egg"), InlineKeyboardButton("⚡ 赶产", callback_data="rush_produce")],
         [InlineKeyboardButton("🌾 喂养", callback_data="feed_birds"), InlineKeyboardButton("🧹 清扫", callback_data="clean_dung")],
-        [InlineKeyboardButton("⚔️ PK", callback_data="pk_menu"), InlineKeyboardButton("💬 NIAO~AI🦜", callback_data="ai_chat")],
+        [InlineKeyboardButton("⚔️ PK", callback_data="pk_menu")],
         [InlineKeyboardButton("🦜 官网", callback_data="official_web")],
     ])
 
@@ -181,57 +144,6 @@ async def delete_later(context: ContextTypes.DEFAULT_TYPE):
     except:
         pass
 
-# ====================== NIAO AI ======================
-async def ai_response(update: Update, context: ContextTypes.DEFAULT_TYPE):
-    if not model:
-        return
-
-    text = update.message.text.strip()
-    if not text:
-        return
-
-    chat = update.effective_chat
-    chat_id = chat.id
-    is_group = chat.type in ["group", "supergroup"]
-
-    logger.info(f"[NIAO] === 收到消息 === {text} | 群聊: {is_group} | chat_id: {chat_id}")
-
-    # 群聊触发条件
-    if is_group:
-        bot = await context.bot.get_me()
-        bot_username = bot.username or ""
-        mentioned = f"@{bot_username.lower()}" in text.lower()
-        in_mode = chat_mode.get(chat_id, False)
-        if not (mentioned or in_mode):
-            logger.info("[NIAO] 群聊未触发条件，跳过")
-            return
-
-    logger.info("[NIAO] 开始调用 Gemini")
-
-    await update.message.chat.send_action("typing")
-
-    try:
-        prompt = f"""你叫 NIAO，是飞鸟牧场可爱幽默的专属AI助手。
-只回复纯文字，经常自称“NIAO”，语气活泼可爱。
-用户说：{text}"""
-
-        response = model.generate_content(prompt)
-        reply = response.text.strip()[:4000] if response and response.text else "😔 NIAO 这次没想好说什么～"
-        await update.message.reply_text(reply)
-        logger.info("[NIAO] 回复成功")
-    except Exception as e:
-        logger.error(f"[NIAO] 调用失败: {e}", exc_info=True)
-        await update.message.reply_text("❌ NIAO 连接失败～ 请稍后再试！")
-
-async def ai_button(update: Update, context: ContextTypes.DEFAULT_TYPE):
-    chat_id = update.effective_chat.id
-    chat_mode[chat_id] = True
-    await update.callback_query.answer()
-    await update.callback_query.edit_message_text(
-        "💬 **NIAO 聊天模式已开启**\n\n现在可以直接在群里发消息了！\n输入 /back 返回牧场",
-        parse_mode='Markdown'
-    )
-
 # ====================== 群聊经验 ======================
 async def group_chat_exp(update: Update, context: ContextTypes.DEFAULT_TYPE):
     if update.effective_chat.type == "private":
@@ -245,6 +157,108 @@ async def group_chat_exp(update: Update, context: ContextTypes.DEFAULT_TYPE):
         await update.message.reply_text(f"🎉 聊天获得经验！升级到 {user['level']} 级！", quote=True)
     save_data()
 
+# ====================== 排行榜（分页，每页10人） ======================
+async def show_rank(update: Update, context: ContextTypes.DEFAULT_TYPE, page: int = 0):
+    if not user_data:
+        await (update.callback_query.message.reply_text if update.callback_query else update.message.reply_text)("🏆 目前还没有玩家")
+        return
+
+    sorted_users = sorted(user_data.items(), key=lambda x: calculate_combat(x[1]), reverse=True)
+    total = len(sorted_users)
+    per_page = 10
+    total_pages = (total + per_page - 1) // per_page
+
+    start = page * per_page
+    end = start + per_page
+    page_users = sorted_users[start:end]
+
+    text = f"🏆 **飞鸟牧场战斗力排行榜**（第{page+1}/{total_pages}页）\n\n"
+    for i, (uid, d) in enumerate(page_users, start + 1):
+        nickname = d.get("nickname", f"用户{uid[-4:]}")
+        combat = calculate_combat(d)
+        text += f"`{i:2d}.` **{nickname}** — ⚔️ {combat}（{d.get('level',1)}级）\n"
+
+    buttons = []
+    row = []
+    if page > 0:
+        row.append(InlineKeyboardButton("⬅️ 上一页", callback_data=f"rank_page_{page-1}"))
+    if page < total_pages - 1:
+        row.append(InlineKeyboardButton("下一页 ➡️", callback_data=f"rank_page_{page+1}"))
+    if row:
+        buttons.append(row)
+    buttons.append([InlineKeyboardButton("← 返回牧场", callback_data="back_to_main")])
+
+    markup = InlineKeyboardMarkup(buttons)
+
+    if update.callback_query:
+        await update.callback_query.edit_message_text(text, reply_markup=markup, parse_mode='Markdown')
+    else:
+        await update.message.reply_text(text, reply_markup=markup, parse_mode='Markdown')
+
+# ====================== PK功能 ======================
+async def pk_random_handler(update: Update, context: ContextTypes.DEFAULT_TYPE, user, query=None):
+    my_id = str(update.effective_user.id)
+    my_power = calculate_combat(user)
+
+    other_players = [uid for uid in user_data.keys() if uid != my_id]
+    if not other_players:
+        text = "⚔️ **随机PK**\n\n😔 目前没有其他玩家可以匹配～"
+        if query:
+            await query.message.reply_text(text, parse_mode='Markdown')
+        else:
+            await update.message.reply_text(text, parse_mode='Markdown')
+        return
+
+    opponent_id = random.choice(other_players)
+    opponent = get_user_data(int(opponent_id))
+    opponent_power = calculate_combat(opponent)
+    opponent_name = opponent.get("nickname", f"玩家{opponent_id[-4:]}")
+
+    if my_power > opponent_power:
+        exp_gain = int(opponent["exp"] * 0.05)
+        combat_gain = int(opponent_power * 0.05)
+        user["exp"] += exp_gain
+        user["combat"] += combat_gain
+        opponent["exp"] = int(opponent["exp"] * 0.95)
+        opponent["combat"] = int(opponent["combat"] * 0.95)
+        result_text = f"🎉 **胜利！** 你击败了 **{opponent_name}**！\n掠夺了 {exp_gain} 经验和 {combat_gain} 战斗力"
+    else:
+        result_text = f"😔 **失败...** 对手 **{opponent_name}** 战力更高"
+
+    text = f"⚔️ **随机PK**\n\n{result_text}\n\n你的战力：**{my_power}** | 对手战力：**{opponent_power}**"
+    
+    if query:
+        await query.message.reply_text(text, parse_mode='Markdown')
+    else:
+        await update.message.reply_text(text, parse_mode='Markdown')
+    save_data()
+
+async def pk_target_fight(update: Update, user, target_id: int):
+    if target_id == update.effective_user.id:
+        await update.message.reply_text("❌ 不能挑战自己")
+        return
+    target = get_user_data(target_id)
+    my_power = calculate_combat(user)
+    target_power = calculate_combat(target)
+    target_name = target.get("nickname", f"玩家{str(target_id)[-4:]}")
+
+    if my_power > target_power:
+        exp_gain = int(target["exp"] * 0.05)
+        combat_gain = int(target_power * 0.05)
+        user["exp"] += exp_gain
+        user["combat"] += combat_gain
+        target["exp"] = int(target["exp"] * 0.95)
+        target["combat"] = int(target["combat"] * 0.95)
+        result = f"🎉 胜利！你掠夺了 {exp_gain} 经验和 {combat_gain} 战斗力"
+    else:
+        result = "😔 失败，对手战力更高"
+
+    await update.message.reply_text(
+        f"⚔️ **指定挑战**\n对手：**{target_name}**\n你的战力：{my_power} | 对手战力：{target_power}\n\n{result}",
+        parse_mode='Markdown'
+    )
+    save_data()
+
 # ====================== 按钮处理器 ======================
 async def button_handler(update: Update, context: ContextTypes.DEFAULT_TYPE):
     query = update.callback_query
@@ -252,12 +266,37 @@ async def button_handler(update: Update, context: ContextTypes.DEFAULT_TYPE):
     data = query.data
     await query.answer("✅ 操作成功！")
 
+    if data.startswith("rank_page_"):
+        page = int(data.split("_")[-1])
+        await show_rank(update, context, page)
+        return
+
+    elif data == "pk_menu":
+        await query.edit_message_text("⚔️ **请选择PK模式**", reply_markup=pk_keyboard(), parse_mode='Markdown')
+        return
+
+    elif data == "pk_random":
+        await pk_random_handler(update, context, user, query=query)
+        await send_panel(update, edit=True)
+        return
+
+    elif data == "pk_target":
+        await query.edit_message_text(
+            "👤 **指定挑战**\n\n请使用以下命令挑战其他玩家：\n"
+            "`/pk <玩家ID>`\n\n"
+            "例如：`/pk 123456789`\n\n"
+            "可在排行榜中复制玩家ID",
+            parse_mode='Markdown'
+        )
+        return
+
+    elif data == "back_to_main":
+        await send_panel(update, edit=True)
+        return
+
     reply = None
 
-    if data == "ai_chat":
-        await ai_button(update, context)
-        return
-    elif data == "pick_egg":
+    if data == "pick_egg":
         if user.get("pick_egg_today", 0) >= 10:
             reply = await query.message.reply_text("❌ 今日捡蛋已达上限（10次）")
         else:
@@ -267,6 +306,7 @@ async def button_handler(update: Update, context: ContextTypes.DEFAULT_TYPE):
             reply = await query.message.reply_text(f"✅ 捡蛋成功！+{reward}经验（今日{user['pick_egg_today']}/10）")
             if leveled:
                 await query.message.reply_text(f"🎉 升级了！当前 {user['level']} 级")
+
     elif data == "rush_produce":
         if user.get("rush_today", 0) >= 10:
             reply = await query.message.reply_text("❌ 今日赶产已达上限（10次）")
@@ -274,6 +314,7 @@ async def button_handler(update: Update, context: ContextTypes.DEFAULT_TYPE):
             user["rush_today"] = user.get("rush_today", 0) + 1
             user['feed'] = min(user['feed'] + 20, 300)
             reply = await query.message.reply_text(f"✅ 赶产成功！+20鸟粮（今日{user['rush_today']}/10）")
+
     elif data == "feed_birds":
         if user.get("feed_count_today", 0) >= 15:
             reply = await query.message.reply_text("❌ 今日喂养已达上限（15次）")
@@ -287,6 +328,7 @@ async def button_handler(update: Update, context: ContextTypes.DEFAULT_TYPE):
                 await query.message.reply_text(f"🎉 升级！当前 {user['level']} 级")
         else:
             reply = await query.message.reply_text("❌ 鸟粮不足")
+
     elif data == "clean_dung":
         if user.get("clean_today", 0) >= 15:
             reply = await query.message.reply_text("❌ 今日清扫已达上限（15次）")
@@ -296,8 +338,10 @@ async def button_handler(update: Update, context: ContextTypes.DEFAULT_TYPE):
             reply = await query.message.reply_text(f"✅ 清扫成功！+30经验（今日{user['clean_today']}/15）")
             if leveled:
                 await query.message.reply_text(f"🎉 升级了！当前 {user['level']} 级")
+
     elif data == "official_web":
         reply = await query.message.reply_text("🦜 **NIAO官网**\nhttps://www.niaocoin.xyz/", parse_mode='Markdown')
+
     elif data == "daily_checkin":
         today_str = str(date.today())
         if user.get("last_checkin") == today_str:
@@ -308,47 +352,25 @@ async def button_handler(update: Update, context: ContextTypes.DEFAULT_TYPE):
             reply = await query.message.reply_text("✅ 签到成功！\n+50 经验")
             if leveled:
                 await query.message.reply_text(f"🎉 升级了！当前 {user['level']} 级")
-    elif data == "pk_menu":
-        await query.edit_message_text("⚔️ **请选择PK模式**", reply_markup=pk_keyboard(), parse_mode='Markdown')
-        return
-    elif data == "pk_random":
-        power1 = calculate_combat(user)
-        power2 = random.randint(max(30, power1 - 120), power1 + 200)
-        result = "🎉 你赢了！+80 经验" if power1 > power2 else "😔 你输了"
-        if power1 > power2:
-            add_exp(update.effective_user.id, 80)
-        reply = await query.message.reply_text(f"⚔️ **随机PK**\n你的战力：**{power1}**\n对手战力：**{power2}**\n\n{result}", parse_mode='Markdown')
-    elif data == "back_to_main":
-        await send_panel(update, edit=True)
-        return
 
     if reply:
         context.job_queue.run_once(delete_later, 2, data={'chat_id': reply.chat_id, 'message_id': reply.message_id})
 
     save_data()
-    if data not in ["pk_menu", "pk_random", "pk_target", "daily_checkin", "ai_chat"]:
+    if data not in ["pk_menu", "pk_random", "pk_target", "daily_checkin", "back_to_main"] and not data.startswith("rank_page_"):
         await send_panel(update, edit=True)
 
 # ====================== 命令 ======================
 async def start(update: Update, context: ContextTypes.DEFAULT_TYPE):
     get_user_data(update.effective_user.id, update.effective_user)
-    await update.message.reply_text("🎉 欢迎来到飞鸟牧场！\n我是 **NIAO**～")
+    await update.message.reply_text("🎉 欢迎来到飞鸟牧场！")
     await send_panel(update)
 
 async def back_to_farm(update: Update, context: ContextTypes.DEFAULT_TYPE):
     await send_panel(update)
 
 async def rank(update: Update, context: ContextTypes.DEFAULT_TYPE):
-    if not user_data:
-        await update.message.reply_text("🏆 目前还没有玩家上榜")
-        return
-    sorted_users = sorted(user_data.items(), key=lambda x: calculate_combat(x[1]), reverse=True)[:10]
-    text = "🏆 **飞鸟牧场战斗力排行榜** 🏆\n\n"
-    for i, (uid, d) in enumerate(sorted_users, 1):
-        nickname = d.get("nickname", f"用户{uid[-4:]}")
-        combat = calculate_combat(d)
-        text += f"{i}. **{nickname}** — ⚔️ {combat} 战斗力（{d.get('level',1)}级）\n"
-    await update.message.reply_text(text, parse_mode='Markdown')
+    await show_rank(update, context, page=0)
 
 async def checkin_cmd(update: Update, context: ContextTypes.DEFAULT_TYPE):
     user = get_user_data(update.effective_user.id, update.effective_user)
@@ -364,14 +386,15 @@ async def checkin_cmd(update: Update, context: ContextTypes.DEFAULT_TYPE):
     save_data()
 
 async def pk_command(update: Update, context: ContextTypes.DEFAULT_TYPE):
-    user = get_user_data(update.effective_user.id, update.effective_user)
-    power1 = calculate_combat(user)
-    power2 = random.randint(max(30, power1 - 120), power1 + 200)
-    result = "🎉 你赢了！+80 经验" if power1 > power2 else "😔 你输了"
-    if power1 > power2:
-        add_exp(update.effective_user.id, 80)
-    await update.message.reply_text(f"⚔️ **随机PK**\n你的战力：**{power1}**\n对手战力：**{power2}**\n\n{result}", parse_mode='Markdown')
-    save_data()
+    if not context.args:
+        await update.message.reply_text("用法：`/pk <玩家ID>`\n例如：`/pk 123456789`", parse_mode='Markdown')
+        return
+    try:
+        target_id = int(context.args[0])
+        user = get_user_data(update.effective_user.id, update.effective_user)
+        await pk_target_fight(update, user, target_id)
+    except:
+        await update.message.reply_text("❌ 请输入正确的玩家ID")
 
 # ====================== 主函数 ======================
 def main():
@@ -384,8 +407,6 @@ def main():
         pass
 
     app.add_handler(ChatMemberHandler(track_group, ChatMemberHandler.MY_CHAT_MEMBER))
-
-    # 群聊经验（优先级低）
     app.add_handler(MessageHandler(filters.TEXT & ~filters.COMMAND & filters.ChatType.GROUPS, group_chat_exp), group=1)
 
     app.add_handler(CommandHandler("start", start))
@@ -393,18 +414,11 @@ def main():
     app.add_handler(CommandHandler("rank", rank))
     app.add_handler(CommandHandler("checkin", checkin_cmd))
     app.add_handler(CommandHandler("pk", pk_command))
-    app.add_handler(CommandHandler("ai", ai_response))
     app.add_handler(CommandHandler("back", back_to_farm))
 
     app.add_handler(CallbackQueryHandler(button_handler))
 
-    # AI 处理器 - 最高优先级
-    app.add_handler(MessageHandler(
-        filters.TEXT & ~filters.COMMAND,
-        ai_response
-    ), group=0)
-
-    logger.info("🚀 飞鸟牧场 + NIAO 完整版启动成功！")
+    logger.info("🚀 飞鸟牧场 Bot 启动成功！（完整版 - 真实PK + 分页排行榜）")
     app.run_polling(drop_pending_updates=True)
 
 if __name__ == '__main__':
